@@ -22,7 +22,7 @@ app.add_middleware(
 
 # 🧠 Stripe setup
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-Add Stripe dependency for backend payments
+# Add Stripe dependency for backend payments
 
 # 🔹 Health check endpoint
 @app.get("/api/health")
