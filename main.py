@@ -83,6 +83,25 @@ def get_tasks():
         ]
     }
 
+# --- TEMP DATA ROUTES (for Properties and Maintenance) ---
+
+@app.get("/api/properties")
+def get_properties():
+    # return fake data for now so frontend doesn't crash
+    return [
+        {"id": 1, "name": "Luxury Condo", "address": "123 Ocean Ave"},
+        {"id": 2, "name": "Downtown Loft", "address": "456 City St"},
+        {"id": 3, "name": "Beach House", "address": "789 Sunset Blvd"},
+    ]
+
+@app.get("/api/maintenance")
+def get_maintenance():
+    return [
+        {"id": 1, "task": "Fix leaky faucet", "status": "Pending"},
+        {"id": 2, "task": "Replace smoke detector", "status": "Completed"},
+        {"id": 3, "task": "Check HVAC filter", "status": "In Progress"},
+    ]
+
 # ----------------------------
 #   Stripe Checkout Endpoint
 # ----------------------------
