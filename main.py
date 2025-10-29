@@ -128,6 +128,36 @@ async def create_checkout_session():
         return JSONResponse({"checkout_url": session.url})
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+import os, stripe
+from fastapi import HTTPException
+from dotenv import load_dotenv
+
+load_dotenv()
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+
+# ✅ Create checkout session
+@app.post("/api/create-checkout-session")
+async def create_checkout_session():
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {"name": "HouseHive Premium Plan"},
+                        "unit_amount": 1500,  # $15.00
+                    },
+                    "quantity": 1,
+                }
+            ],
+            mode="subscription",  # or "payment" for one-time charge
+            success_url="https://househive.vercel.app/billing/success",
+            cancel_url="https://househive.vercel.app/billing/cancel",
+        )
+        return {"url": session.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # Root route
 @app.get("/")
