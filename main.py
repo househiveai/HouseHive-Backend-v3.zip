@@ -59,16 +59,12 @@ app = FastAPI()
 # ✅ Allow frontend connections (Vercel + custom domain)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://househive.ai",
-        "https://www.househive.ai",
-        "https://househive.vercel.app",
-        "http://localhost:3000"  # optional, for local testing
-    ],
+    allow_origins=["*"],  # ✅ temporarily allow all for testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # ✅ Stripe setup
