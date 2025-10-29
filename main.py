@@ -1,3 +1,7 @@
+# -------------------------------
+# HouseHive Backend API v5
+# -------------------------------
+
 from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -6,13 +10,13 @@ import stripe
 import os
 from dotenv import load_dotenv
 
-# Load environment variables (for STRIPE keys)
+# ✅ Load environment variables (for Stripe keys)
 load_dotenv()
 
-# Initialize FastAPI app
+# ✅ Initialize FastAPI app
 app = FastAPI()
 
-# ✅ CORS setup — allows frontend (Vercel) to talk to backend (Render)
+# ✅ Allow frontend connections (Vercel + custom domain)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -27,16 +31,14 @@ app.add_middleware(
 # ✅ Stripe setup
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
-
-# ----------------------------
-#   BASIC ENDPOINTS
-# ----------------------------
+# -------------------------------
+# BASIC ROUTES
+# -------------------------------
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
 
-# 🔹 Login (mocked)
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -44,6 +46,7 @@ class LoginRequest(BaseModel):
 @app.post("/api/login")
 @app.post("/auth/login")
 async def login(request: Request):
+    """Demo login route — accepts JSON or Form"""
     try:
         data = await request.json()
         email = data.get("email")
@@ -58,10 +61,6 @@ async def login(request: Request):
 
     return {"success": False, "error": "Invalid credentials"}
 
-# ----------------------------
-#   MOCK DATA (for frontend)
-# ----------------------------
-
 @app.get("/auth/me")
 def get_user():
     return {
@@ -70,6 +69,10 @@ def get_user():
         "plan": "Premium",
         "role": "Owner"
     }
+
+# -------------------------------
+# MOCK DATA ROUTES
+# -------------------------------
 
 @app.get("/api/properties")
 def get_properties():
@@ -87,13 +90,22 @@ def get_maintenance():
         {"id": 3, "task": "Check HVAC filter", "status": "In Progress"},
     ]
 
-# ----------------------------
-#   STRIPE: Checkout + Billing
-# ----------------------------
+@app.get("/tasks")
+def get_tasks():
+    return {
+        "tasks": [
+            {"id": 101, "property": "Downtown Condo", "task": "Fix sink leak", "status": "Open"},
+            {"id": 102, "property": "Beach House", "task": "Replace smoke alarm", "status": "Completed"},
+        ]
+    }
 
-# ✅ Create Checkout Session
+# -------------------------------
+# STRIPE PAYMENT ROUTES
+# -------------------------------
+
 @app.post("/api/create-checkout-session")
 async def create_checkout_session():
+    """Create a Stripe Checkout session"""
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -103,7 +115,7 @@ async def create_checkout_session():
                     "price_data": {
                         "currency": "usd",
                         "product_data": {"name": "HouseHive Premium Plan"},
-                        "unit_amount": 1500,  # $15.00/month
+                        "unit_amount": 1999,  # $19.99/month
                     },
                     "quantity": 1,
                 }
@@ -115,23 +127,21 @@ async def create_checkout_session():
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
-# ✅ Billing Portal
 @app.post("/api/billing-portal")
 async def billing_portal():
+    """Create Stripe Billing Portal session"""
     try:
-        # Temporary hardcoded test customer (replace later with your real Stripe customer ID)
         session = stripe.billing_portal.Session.create(
-            customer="cus_QZz8Hb9EYjRzLe",
+            customer=os.getenv("STRIPE_CUSTOMER_ID", "cus_demo123"),
             return_url="https://househive.vercel.app/billing",
         )
         return {"url": session.url}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# ----------------------------
-#   ROOT
-# ----------------------------
+# -------------------------------
+# ROOT
+# -------------------------------
 
 @app.get("/")
 def home():
