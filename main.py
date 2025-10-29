@@ -113,9 +113,19 @@ async def register(request: Request):
 # ✅ LOGIN USER
 @app.post("/api/login")
 async def login(request: Request):
-    data = await request.json()
-    email = data.get("email")
-    password = data.get("password")
+    try:
+        # Try reading JSON
+        data = await request.json()
+        email = data.get("email")
+        password = data.get("password")
+    except:
+        # Fallback to form data
+        form = await request.form()
+        email = form.get("email")
+        password = form.get("password")
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Missing email or password")
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
