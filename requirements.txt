@@ -7,4 +7,4 @@ openai
 stripe
 python-multipart
 bcrypt
-
+PyJWT
