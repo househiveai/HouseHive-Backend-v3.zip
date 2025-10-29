@@ -36,6 +36,15 @@ def init_db():
         status TEXT
     )
     """)
+    c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE,
+    password TEXT,
+    plan TEXT DEFAULT 'Free'
+)
+""")
+
     conn.commit()
     conn.close()
 
