@@ -162,14 +162,40 @@ token = create_token({"user_id": row[0], "email": email, "plan": row[2]})
 return {"success": True, "token": token, "plan": row[2]}
 
 
+from fastapi import Header
+
 @app.get("/auth/me")
-def get_user():
+def get_user(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
+
+    token = authorization.split(" ")[1]
+    payload = verify_token(token)
+
+    user_id = payload.get("user_id")
+    email = payload.get("email")
+    plan = payload.get("plan")
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token data")
+
+    # Optionally load user details from database
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT email, plan FROM users WHERE id = ?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+
     return {
-        "email": "demo@househive.ai",
-        "name": "Demo User",
-        "plan": "Premium",
-        "role": "Owner"
+        "email": row[0],
+        "plan": row[1],
+        "role": "Owner",
+        "name": email.split("@")[0].capitalize(),
     }
+
 
 # -------------------------------
 # MOCK DATA ROUTES
