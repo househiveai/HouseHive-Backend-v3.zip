@@ -138,6 +138,30 @@ async def billing_portal():
         return {"url": session.url}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+from openai import OpenAI
+import json
+
+# ✅ AI Assistant endpoint (HiveBot)
+@app.post("/api/ai/chat")
+async def ai_chat(request: Request):
+    try:
+        data = await request.json()
+        messages = data.get("messages", [])
+        system_prompt = data.get("system_prompt", "You are HiveBot, an AI co-host assistant for property owners.")
+
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        completion = client.chat.completions.create(
+            model="gpt-5",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                *messages
+            ]
+        )
+
+        return {"reply": completion.choices[0].message.content}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # -------------------------------
 # ROOT
