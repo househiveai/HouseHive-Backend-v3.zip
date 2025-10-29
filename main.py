@@ -86,23 +86,52 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
-@app.post("/api/login")
-@app.post("/auth/login")
-async def login(request: Request):
-    """Demo login route — accepts JSON or Form"""
+from fastapi import FastAPI, Form, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+import bcrypt, sqlite3, os
+
+# ✅ REGISTER USER
+@app.post("/api/register")
+async def register(request: Request):
+    data = await request.json()
+    email = data.get("email")
+    password = data.get("password")
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+
+    hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
     try:
-        data = await request.json()
-        email = data.get("email")
-        password = data.get("password")
-    except:
-        form = await request.form()
-        email = form.get("email")
-        password = form.get("password")
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, hashed_pw))
+        conn.commit()
+        conn.close()
+        return {"success": True, "message": "User registered successfully"}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="User already exists")
 
-    if email == "demo@househive.ai" and password == "password123":
-        return {"success": True, "token": "househive-demo-token"}
+# ✅ LOGIN USER
+@app.post("/api/login")
+async def login(request: Request):
+    data = await request.json()
+    email = data.get("email")
+    password = data.get("password")
 
-    return {"success": False, "error": "Invalid credentials"}
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT id, password, plan FROM users WHERE email = ?", (email,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row or not bcrypt.checkpw(password.encode(), row[1].encode()):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    return {"success": True, "token": f"user-{row[0]}", "plan": row[2]}
+
 
 @app.get("/auth/me")
 def get_user():
