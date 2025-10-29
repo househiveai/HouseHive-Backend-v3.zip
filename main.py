@@ -11,6 +11,27 @@ import os
 from dotenv import load_dotenv
 import sqlite3
 from pathlib import Path
+import jwt
+from datetime import datetime, timedelta
+
+JWT_SECRET = os.getenv("JWT_SECRET", "househive_secret_fallback")
+JWT_ALGORITHM = "HS256"
+
+def create_token(data: dict, expires_delta: timedelta = timedelta(hours=6)):
+    """Create a signed JWT token."""
+    to_encode = data.copy()
+    expire = datetime.utcnow() + expires_delta
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def verify_token(token: str):
+    """Verify and decode JWT token."""
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 # --- DATABASE SETUP ---
 DB_PATH = Path("househive.db")
@@ -133,10 +154,12 @@ async def login(request: Request):
     row = c.fetchone()
     conn.close()
 
-    if not row or not bcrypt.checkpw(password.encode(), row[1].encode()):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+   if not row or not bcrypt.checkpw(password.encode(), row[1].encode()):
+    raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    return {"success": True, "token": f"user-{row[0]}", "plan": row[2]}
+# ✅ Generate JWT token for the user
+token = create_token({"user_id": row[0], "email": email, "plan": row[2]})
+return {"success": True, "token": token, "plan": row[2]}
 
 
 @app.get("/auth/me")
