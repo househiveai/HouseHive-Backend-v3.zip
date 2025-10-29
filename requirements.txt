@@ -6,4 +6,5 @@ requests
 openai
 stripe
 python-multipart
+bcrypt
 
