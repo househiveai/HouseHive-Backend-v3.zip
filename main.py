@@ -107,19 +107,12 @@ def get_user():
 
 @app.get("/api/properties")
 def get_properties():
-    return [
-        {"id": 1, "name": "Luxury Condo", "address": "123 Ocean Ave"},
-        {"id": 2, "name": "Downtown Loft", "address": "456 City St"},
-        {"id": 3, "name": "Beach House", "address": "789 Sunset Blvd"},
-    ]
+    return get_all_properties()
 
 @app.get("/api/maintenance")
 def get_maintenance():
-    return [
-        {"id": 1, "task": "Fix leaky faucet", "status": "Pending"},
-        {"id": 2, "task": "Replace smoke detector", "status": "Completed"},
-        {"id": 3, "task": "Check HVAC filter", "status": "In Progress"},
-    ]
+    return get_all_tasks()
+
 
 @app.get("/tasks")
 def get_tasks():
