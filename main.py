@@ -9,6 +9,37 @@ from pydantic import BaseModel
 import stripe
 import os
 from dotenv import load_dotenv
+import sqlite3
+from pathlib import Path
+
+# --- DATABASE SETUP ---
+DB_PATH = Path("househive.db")
+
+# Create tables if not exist
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS properties (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        address TEXT,
+        rent REAL,
+        status TEXT
+    )
+    """)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        property_name TEXT,
+        task TEXT,
+        status TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # ✅ Load environment variables (for Stripe keys)
 load_dotenv()
