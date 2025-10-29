@@ -6,18 +6,18 @@ import stripe
 import os
 from dotenv import load_dotenv
 
-# Load .env for local testing
+# Load environment variables (for STRIPE keys)
 load_dotenv()
 
 # Initialize FastAPI app
 app = FastAPI()
 
-# ✅ Allow your frontend domains
+# ✅ CORS setup — allows frontend (Vercel) to talk to backend (Render)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://househive.ai",
-        "https://househive.vercel.app"
+        "https://househive.vercel.app",
+        "https://househive.ai"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -26,6 +26,7 @@ app.add_middleware(
 
 # ✅ Stripe setup
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+
 
 # ----------------------------
 #   BASIC ENDPOINTS
