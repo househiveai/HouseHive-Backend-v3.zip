@@ -142,26 +142,54 @@ from openai import OpenAI
 import json
 
 # ✅ AI Assistant endpoint (HiveBot)
+from openai import OpenAI
+from fastapi import Request, HTTPException
+from typing import Dict, List
+import os
+
+# Store chat history per user session
+chat_sessions: Dict[str, List[Dict[str, str]]] = {}
+
 @app.post("/api/ai/chat")
 async def ai_chat(request: Request):
     try:
         data = await request.json()
-        messages = data.get("messages", [])
-        system_prompt = data.get("system_prompt", "You are HiveBot, an AI co-host assistant for property owners.")
+        user_id = data.get("user_id", "guest")  # later can link to actual login
+        user_msg = data.get("message", "").strip()
+        system_prompt = data.get(
+            "system_prompt",
+            "You are HiveBot, an intelligent AI co-host for HouseHive.ai. You help manage properties, tasks, and guests in a friendly and efficient tone."
+        )
+
+        if not user_msg:
+            raise HTTPException(status_code=400, detail="Missing message content")
+
+        # Initialize session if not exists
+        if user_id not in chat_sessions:
+            chat_sessions[user_id] = [{"role": "system", "content": system_prompt}]
+
+        # Add user message
+        chat_sessions[user_id].append({"role": "user", "content": user_msg})
 
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-        completion = client.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-5",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                *messages
-            ]
+            messages=chat_sessions[user_id],
+            temperature=0.7,
+            max_tokens=500
         )
 
-        return {"reply": completion.choices[0].message.content}
+        ai_reply = response.choices[0].message.content.strip()
+
+        # Save AI reply to history
+        chat_sessions[user_id].append({"role": "assistant", "content": ai_reply})
+
+        return {"reply": ai_reply, "history": chat_sessions[user_id][-10:]}  # return last 10 messages
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 # -------------------------------
 # ROOT
