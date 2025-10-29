@@ -51,13 +51,16 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://househive.ai",
+        "https://www.househive.ai",
         "https://househive.vercel.app",
-        "https://househive.ai"
+        "http://localhost:3000"  # optional, for local testing
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # ✅ Stripe setup
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
