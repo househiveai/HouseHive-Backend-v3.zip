@@ -191,6 +191,48 @@ chat_sessions: Dict[str, List[Dict[str, str]]] = {}
 properties_db: List[Dict[str, str]] = []
 tasks_db: List[Dict[str, str]] = []
 
+from openai import OpenAI
+from fastapi import Request, HTTPException
+import json, os, re, sqlite3
+
+chat_sessions = {}
+
+def insert_property(data):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO properties (name, address, rent, status) VALUES (?, ?, ?, ?)",
+        (data.get("name"), data.get("address"), data.get("rent"), data.get("status"))
+    )
+    conn.commit()
+    conn.close()
+
+def insert_task(data):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO tasks (property_name, task, status) VALUES (?, ?, ?)",
+        (data.get("property_name"), data.get("task"), data.get("status"))
+    )
+    conn.commit()
+    conn.close()
+
+def get_all_properties():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT id, name, address, rent, status FROM properties")
+    rows = c.fetchall()
+    conn.close()
+    return [{"id": r[0], "name": r[1], "address": r[2], "rent": r[3], "status": r[4]} for r in rows]
+
+def get_all_tasks():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT id, property_name, task, status FROM tasks")
+    rows = c.fetchall()
+    conn.close()
+    return [{"id": r[0], "property": r[1], "task": r[2], "status": r[3]} for r in rows]
+
 @app.post("/api/ai/chat")
 async def ai_chat(request: Request):
     try:
@@ -199,16 +241,55 @@ async def ai_chat(request: Request):
         user_msg = data.get("message", "").strip()
 
         if not user_msg:
-            raise HTTPException(status_code=400, detail="Missing message content")
+            raise HTTPException(status_code=400, detail="Missing message")
 
-        # Initialize session
+        # Initialize session memory
         if user_id not in chat_sessions:
             chat_sessions[user_id] = [
                 {
                     "role": "system",
-                    "content": "You are HiveBot, a friendly AI co-host for HouseHive.ai that manages properties, maintenance, and guests. When users ask to add a property or maintenance task, respond normally *and* provide a short JSON block at the end of your message (starting with '##ACTION##') describing the action."
+                    "content": (
+                        "You are HiveBot, an AI co-host for HouseHive.ai. "
+                        "You help manage rental properties, maintenance, and guests. "
+                        "When a user requests to add a property or maintenance task, "
+                        "respond normally but also output JSON after '##ACTION##' describing the action."
+                    )
                 }
             ]
+
+        chat_sessions[user_id].append({"role": "user", "content": user_msg})
+
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        completion = client.chat.completions.create(
+            model="gpt-5",
+            messages=chat_sessions[user_id],
+            temperature=0.7
+        )
+
+        reply = completion.choices[0].message.content.strip()
+        chat_sessions[user_id].append({"role": "assistant", "content": reply})
+
+        # Detect AI action
+        match = re.search(r"##ACTION##(.*)", reply, re.DOTALL)
+        if match:
+            try:
+                action = json.loads(match.group(1).strip())
+                if action.get("type") == "property":
+                    insert_property(action["data"])
+                elif action.get("type") == "task":
+                    insert_task(action["data"])
+            except Exception as e:
+                print("Action parse error:", e)
+
+        return {
+            "reply": reply,
+            "history": chat_sessions[user_id][-10:],
+            "properties": get_all_properties(),
+            "tasks": get_all_tasks()
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
         chat_sessions[user_id].append({"role": "user", "content": user_msg})
 
