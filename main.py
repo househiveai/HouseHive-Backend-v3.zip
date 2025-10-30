@@ -47,14 +47,15 @@ app = FastAPI(title="HouseHive Backend API v5")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://house-hive-frontend-js-brand-zip.vercel.app",
         "https://househive.ai",
-        "https://www.househive.ai"
+        "https://www.househive.ai",
+        "https://house-hive-frontend-js-brand-zip.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 
