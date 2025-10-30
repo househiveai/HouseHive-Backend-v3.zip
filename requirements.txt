@@ -1,10 +1,10 @@
-fastapi
-uvicorn
-pydantic
-python-dotenv
+fastapi==0.120.1
+uvicorn==0.38.0
+pydantic==2.12.3
+python-dotenv==1.2.1
 requests
 openai
-stripe
+stripe==10.7.0
 python-multipart
 bcrypt
 PyJWT
