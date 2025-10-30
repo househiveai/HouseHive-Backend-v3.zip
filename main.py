@@ -46,12 +46,12 @@ app = FastAPI(title="HouseHive Backend API v5")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, VERCEL_URL]
-
+    allow_origins=[FRONTEND_URL, VERCEL_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # -------------------------------
 # DB INIT
