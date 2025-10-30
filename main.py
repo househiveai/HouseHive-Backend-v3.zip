@@ -46,7 +46,8 @@ app = FastAPI(title="HouseHive Backend API v5")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to [FRONTEND_URL, VERCEL_URL] once live
+    allow_origins=[FRONTEND_URL, VERCEL_URL]
+
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
