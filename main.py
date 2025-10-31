@@ -1,5 +1,5 @@
 # -------------------------------
-# HouseHive Backend API v5 (JWT + CRUD + Stripe)
+# HouseHive Backend API v5 (JWT + CRUD + Tenants + Reminders + Stripe + Admin)
 # -------------------------------
 
 from fastapi import FastAPI, Request, HTTPException, Header, Depends
@@ -30,11 +30,8 @@ STRIPE_SECRET_KEY      = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET  = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 stripe.api_key = STRIPE_SECRET_KEY
 
-# Optional: map plan codes -> Stripe Price IDs (recommended)
-# If you already created Prices in Stripe Dashboard, put their IDs here:
-# Example: price_123 for $15/mo, price_456 for $29/mo, price_789 for $99/mo
 PLAN_PRICE_IDS = {
-    "cohost": os.getenv("PRICE_COHOST_ID", ""),
+    "cohost": os.getenv("PRICE_COHOST_ID", ""),   # e.g. price_...
     "pro":    os.getenv("PRICE_PRO_ID",    ""),
     "agency": os.getenv("PRICE_AGENCY_ID", ""),
 }
@@ -47,17 +44,15 @@ app = FastAPI(title="HouseHive Backend API v5")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://househive.ai",
+        FRONTEND_URL,
+        VERCEL_URL,
         "https://www.househive.ai",
-        "https://house-hive-frontend-js-brand-zip.vercel.app"
+        "http://localhost:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-
 
 # -------------------------------
 # DB INIT
@@ -76,7 +71,7 @@ def init_db():
             stripe_subscription_id TEXT
         )
     """)
-    # properties (per user)
+    # properties
     c.execute("""
         CREATE TABLE IF NOT EXISTS properties (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,7 +83,7 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(id)
         )
     """)
-    # tasks (per user)
+    # tasks (maintenance)
     c.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +92,40 @@ def init_db():
             property_name TEXT,
             task TEXT,
             status TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(property_id) REFERENCES properties(id)
+        )
+    """)
+    # tenants
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tenants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            name TEXT,
+            email TEXT,
+            phone TEXT,
+            property_id INTEGER,
+            unit TEXT,
+            notes TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(property_id) REFERENCES properties(id)
+        )
+    """)
+    # reminders (rent reminders, etc.)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            tenant_id INTEGER,
+            property_id INTEGER,
+            title TEXT,
+            message TEXT,
+            due_date TEXT,
+            sent INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(tenant_id) REFERENCES tenants(id),
             FOREIGN KEY(property_id) REFERENCES properties(id)
         )
     """)
@@ -105,6 +133,10 @@ def init_db():
     conn.close()
 
 init_db()
+
+def db() -> sqlite3.Connection:
+    # enable row factory if you want dicts
+    return sqlite3.connect(DB_PATH)
 
 # -------------------------------
 # JWT Helpers
@@ -127,13 +159,25 @@ def get_current_user(authorization: str = Header(None)) -> Dict[str, Any]:
         raise HTTPException(status_code=401, detail="Missing or invalid token")
     token = authorization.split(" ")[1]
     payload = verify_token(token)
-    # Minimal checks
     if not payload.get("user_id") or not payload.get("email"):
         raise HTTPException(status_code=401, detail="Invalid token data")
-    return payload  # includes user_id, email, plan maybe
+    return payload
 
 # -------------------------------
-# Models (lightweight)
+# Admin Backdoor
+# -------------------------------
+ADMIN_EMAILS = {"dntullo@yahoo.com"}
+
+def is_admin(email: str) -> bool:
+    return (email or "").strip().lower() in ADMIN_EMAILS
+
+def require_admin(user=Depends(get_current_user)):
+    if not is_admin(user.get("email")):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+# -------------------------------
+# Models
 # -------------------------------
 class RegisterBody(BaseModel):
     email: str
@@ -155,15 +199,27 @@ class TaskBody(BaseModel):
     task: str
     status: str = "Open"
 
+class TenantBody(BaseModel):
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    property_id: Optional[int] = None
+    unit: Optional[str] = None
+    notes: Optional[str] = None
+
+class ReminderBody(BaseModel):
+    tenant_id: Optional[int] = None
+    property_id: Optional[int] = None
+    title: str
+    message: str
+    due_date: str  # ISO date string
+
 class CheckoutBody(BaseModel):
     plan: str  # 'cohost' | 'pro' | 'agency'
 
 # -------------------------------
-# Utils: DB
+# Helpers to read users
 # -------------------------------
-def db() -> sqlite3.Connection:
-    return sqlite3.connect(DB_PATH)
-
 def get_user_by_email(email: str):
     conn = db(); c = conn.cursor()
     c.execute("SELECT id, email, password, plan, stripe_customer_id, stripe_subscription_id FROM users WHERE email=?", (email,))
@@ -191,7 +247,7 @@ def update_user_plan_and_stripe(user_id: int, plan: str, customer_id: Optional[s
 # -------------------------------
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "ts": datetime.utcnow().isoformat()}
+    return {"status": "ok", "name": "HouseHive.ai API", "ts": datetime.utcnow().isoformat()}
 
 # -------------------------------
 # Auth
@@ -206,7 +262,6 @@ def register(body: RegisterBody):
 
     hashed_pw = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
 
-    # Optional: create Stripe customer now
     stripe_customer_id = None
     if STRIPE_SECRET_KEY:
         sc = stripe.Customer.create(email=email, metadata={"househive": "true"})
@@ -222,12 +277,10 @@ def register(body: RegisterBody):
 
 @app.post("/api/login")
 async def login(request: Request):
-    # Accept JSON or form
     try:
         data = await request.json()
     except:
         data = await request.form()
-
     email = (data.get("email") or "").strip().lower()
     password = data.get("password")
     if not email or not password:
@@ -250,17 +303,18 @@ def me(user = Depends(get_current_user)):
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
     _, email, _, plan, stripe_customer_id, stripe_subscription_id = row
+    role = "Admin" if is_admin(email) else "Owner"
     return {
         "email": email,
         "plan": plan,
-        "role": "Owner",
+        "role": role,
         "name": email.split("@")[0].capitalize(),
         "stripe_customer_id": stripe_customer_id,
         "stripe_subscription_id": stripe_subscription_id
     }
 
 # -------------------------------
-# Properties (CRUD, per user)
+# Properties (CRUD)
 # -------------------------------
 @app.get("/api/properties")
 def list_properties(user = Depends(get_current_user)):
@@ -283,46 +337,49 @@ def create_property(body: PropertyBody, user = Depends(get_current_user)):
 def update_property(property_id: int, body: PropertyBody, user = Depends(get_current_user)):
     conn = db(); c = conn.cursor()
     c.execute("""
-        UPDATE properties
-        SET name=?, address=?, rent=?, status=?
+        UPDATE properties SET name=?, address=?, rent=?, status=?
         WHERE id=? AND user_id=?
     """, (body.name, body.address, body.rent, body.status, property_id, user["user_id"]))
-    conn.commit(); updated = (c.rowcount > 0); conn.close()
-    if not updated: raise HTTPException(status_code=404, detail="Property not found")
+    conn.commit(); ok = c.rowcount > 0; conn.close()
+    if not ok: raise HTTPException(status_code=404, detail="Property not found")
     return {"success": True}
 
 @app.delete("/api/properties/{property_id}")
 def delete_property(property_id: int, user = Depends(get_current_user)):
     conn = db(); c = conn.cursor()
     c.execute("DELETE FROM properties WHERE id=? AND user_id=?", (property_id, user["user_id"]))
-    conn.commit(); deleted = (c.rowcount > 0); conn.close()
-    if not deleted: raise HTTPException(status_code=404, detail="Property not found")
+    conn.commit(); ok = c.rowcount > 0; conn.close()
+    if not ok: raise HTTPException(status_code=404, detail="Property not found")
     return {"success": True}
 
 # -------------------------------
-# Tasks (CRUD, per user)
+# Maintenance Tasks (CRUD) + “Active” shortcut
 # -------------------------------
 @app.get("/api/maintenance")
-def list_tasks(user = Depends(get_current_user)):
+def list_tasks(user = Depends(get_current_user), status: Optional[str] = None):
     conn = db(); c = conn.cursor()
-    c.execute("""
-        SELECT id, property_id, property_name, task, status
-        FROM tasks WHERE user_id=? ORDER BY id DESC
-    """, (user["user_id"],))
+    if status:
+        c.execute("""
+            SELECT id, property_id, property_name, task, status, created_at
+            FROM tasks WHERE user_id=? AND status=?
+            ORDER BY id DESC
+        """, (user["user_id"], status))
+    else:
+        c.execute("""
+            SELECT id, property_id, property_name, task, status, created_at
+            FROM tasks WHERE user_id=? ORDER BY id DESC
+        """, (user["user_id"],))
     rows = c.fetchall(); conn.close()
-    return [{"id": r[0], "property_id": r[1], "property_name": r[2], "task": r[3], "status": r[4]} for r in rows]
+    return [{"id": r[0], "property_id": r[1], "property_name": r[2], "task": r[3], "status": r[4], "created_at": r[5]} for r in rows]
 
 @app.post("/api/maintenance")
 def create_task(body: TaskBody, user = Depends(get_current_user)):
-    # Allow either property_id (preferred) or property_name (legacy)
-    # If property_id is provided, we can fetch and store its name for convenience
     pname = body.property_name
     if body.property_id and not pname:
         conn = db(); c = conn.cursor()
         c.execute("SELECT name FROM properties WHERE id=? AND user_id=?", (body.property_id, user["user_id"]))
         r = c.fetchone(); conn.close()
         if r: pname = r[0]
-
     conn = db(); c = conn.cursor()
     c.execute("""
         INSERT INTO tasks (user_id, property_id, property_name, task, status)
@@ -338,16 +395,104 @@ def update_task(task_id: int, body: TaskBody, user = Depends(get_current_user)):
         UPDATE tasks SET property_id=?, property_name=?, task=?, status=?
         WHERE id=? AND user_id=?
     """, (body.property_id, body.property_name, body.task, body.status, task_id, user["user_id"]))
-    conn.commit(); updated = (c.rowcount > 0); conn.close()
-    if not updated: raise HTTPException(status_code=404, detail="Task not found")
+    conn.commit(); ok = c.rowcount > 0; conn.close()
+    if not ok: raise HTTPException(status_code=404, detail="Task not found")
     return {"success": True}
 
 @app.delete("/api/maintenance/{task_id}")
 def delete_task(task_id: int, user = Depends(get_current_user)):
     conn = db(); c = conn.cursor()
     c.execute("DELETE FROM tasks WHERE id=? AND user_id=?", (task_id, user["user_id"]))
-    conn.commit(); deleted = (c.rowcount > 0); conn.close()
-    if not deleted: raise HTTPException(status_code=404, detail="Task not found")
+    conn.commit(); ok = c.rowcount > 0; conn.close()
+    if not ok: raise HTTPException(status_code=404, detail="Task not found")
+    return {"success": True}
+
+# -------------------------------
+# Tenants (CRUD)
+# -------------------------------
+@app.get("/api/tenants")
+def list_tenants(user = Depends(get_current_user)):
+    conn = db(); c = conn.cursor()
+    c.execute("""
+        SELECT id, name, email, phone, property_id, unit, notes
+        FROM tenants WHERE user_id=? ORDER BY id DESC
+    """, (user["user_id"],))
+    rows = c.fetchall(); conn.close()
+    return [{"id": r[0], "name": r[1], "email": r[2], "phone": r[3], "property_id": r[4], "unit": r[5], "notes": r[6]} for r in rows]
+
+@app.post("/api/tenants")
+def create_tenant(body: TenantBody, user = Depends(get_current_user)):
+    conn = db(); c = conn.cursor()
+    c.execute("""
+        INSERT INTO tenants (user_id, name, email, phone, property_id, unit, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user["user_id"], body.name, body.email, body.phone, body.property_id, body.unit, body.notes))
+    conn.commit(); tid = c.lastrowid; conn.close()
+    return {"success": True, "id": tid}
+
+@app.put("/api/tenants/{tenant_id}")
+def update_tenant(tenant_id: int, body: TenantBody, user = Depends(get_current_user)):
+    conn = db(); c = conn.cursor()
+    c.execute("""
+        UPDATE tenants SET name=?, email=?, phone=?, property_id=?, unit=?, notes=?
+        WHERE id=? AND user_id=?
+    """, (body.name, body.email, body.phone, body.property_id, body.unit, body.notes, tenant_id, user["user_id"]))
+    conn.commit(); ok = c.rowcount > 0; conn.close()
+    if not ok: raise HTTPException(status_code=404, detail="Tenant not found")
+    return {"success": True}
+
+@app.delete("/api/tenants/{tenant_id}")
+def delete_tenant(tenant_id: int, user = Depends(get_current_user)):
+    conn = db(); c = conn.cursor()
+    c.execute("DELETE FROM tenants WHERE id=? AND user_id=?", (tenant_id, user["user_id"]))
+    conn.commit(); ok = c.rowcount > 0; conn.close()
+    if not ok: raise HTTPException(status_code=404, detail="Tenant not found")
+    return {"success": True}
+
+# -------------------------------
+# Reminders (CRUD) — Rent reminders, etc.
+# -------------------------------
+@app.get("/api/reminders")
+def list_reminders(user = Depends(get_current_user)):
+    conn = db(); c = conn.cursor()
+    c.execute("""
+        SELECT id, tenant_id, property_id, title, message, due_date, sent, created_at
+        FROM reminders WHERE user_id=? ORDER BY due_date ASC
+    """, (user["user_id"],))
+    rows = c.fetchall(); conn.close()
+    return [
+        {"id": r[0], "tenant_id": r[1], "property_id": r[2], "title": r[3],
+         "message": r[4], "due_date": r[5], "sent": bool(r[6]), "created_at": r[7]}
+        for r in rows
+    ]
+
+@app.post("/api/reminders")
+def create_reminder(body: ReminderBody, user = Depends(get_current_user)):
+    conn = db(); c = conn.cursor()
+    c.execute("""
+        INSERT INTO reminders (user_id, tenant_id, property_id, title, message, due_date)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user["user_id"], body.tenant_id, body.property_id, body.title, body.message, body.due_date))
+    conn.commit(); rid = c.lastrowid; conn.close()
+    return {"success": True, "id": rid}
+
+@app.put("/api/reminders/{reminder_id}")
+def update_reminder(reminder_id: int, body: ReminderBody, user = Depends(get_current_user)):
+    conn = db(); c = conn.cursor()
+    c.execute("""
+        UPDATE reminders SET tenant_id=?, property_id=?, title=?, message=?, due_date=?
+        WHERE id=? AND user_id=?
+    """, (body.tenant_id, body.property_id, body.title, body.message, body.due_date, reminder_id, user["user_id"]))
+    conn.commit(); ok = c.rowcount > 0; conn.close()
+    if not ok: raise HTTPException(status_code=404, detail="Reminder not found")
+    return {"success": True}
+
+@app.delete("/api/reminders/{reminder_id}")
+def delete_reminder(reminder_id: int, user = Depends(get_current_user)):
+    conn = db(); c = conn.cursor()
+    c.execute("DELETE FROM reminders WHERE id=? AND user_id=?", (reminder_id, user["user_id"]))
+    conn.commit(); ok = c.rowcount > 0; conn.close()
+    if not ok: raise HTTPException(status_code=404, detail="Reminder not found")
     return {"success": True}
 
 # -------------------------------
@@ -355,29 +500,24 @@ def delete_task(task_id: int, user = Depends(get_current_user)):
 # -------------------------------
 @app.post("/api/create-checkout-session")
 def create_checkout_session(body: CheckoutBody, user = Depends(get_current_user)):
-    plan = body.plan.lower()
-    price_id = PLAN_PRICE_IDS.get(plan, "")
-
     if not STRIPE_SECRET_KEY:
         raise HTTPException(status_code=400, detail="Stripe not configured")
 
-    # Ensure customer exists
+    plan = body.plan.lower()
     uid = int(user["user_id"])
     urow = get_user_by_id(uid)
-    if not urow:
-        raise HTTPException(status_code=404, detail="User not found")
-
+    if not urow: raise HTTPException(status_code=404, detail="User not found")
     _, email, _, current_plan, stripe_customer_id, _ = urow
+
     if not stripe_customer_id:
         sc = stripe.Customer.create(email=email, metadata={"househive_user_id": str(uid)})
         stripe_customer_id = sc["id"]
         update_user_plan_and_stripe(uid, current_plan, stripe_customer_id, None)
 
-    # Prefer real price IDs if provided; else fall back to inline price_data
+    price_id = PLAN_PRICE_IDS.get(plan, "")
     if price_id:
         line_items = [{"price": price_id, "quantity": 1}]
     else:
-        # Fallback demo price (change amount/name to your product)
         line_items = [{
             "price_data": {
                 "currency": "usd",
@@ -394,16 +534,8 @@ def create_checkout_session(body: CheckoutBody, user = Depends(get_current_user)
         line_items=line_items,
         success_url=f"{FRONTEND_URL}/billing/success",
         cancel_url=f"{FRONTEND_URL}/billing/cancel",
-        metadata={
-            "househive_user_id": str(uid),
-            "plan_code": plan
-        },
-        subscription_data={
-            "metadata": {
-                "househive_user_id": str(uid),
-                "plan_code": plan
-            }
-        }
+        metadata={"househive_user_id": str(uid), "plan_code": plan},
+        subscription_data={"metadata": {"househive_user_id": str(uid), "plan_code": plan}}
     )
     return {"url": session.url}
 
@@ -430,15 +562,14 @@ def billing_portal(user = Depends(get_current_user)):
 
 @app.post("/api/stripe/webhook")
 async def stripe_webhook(request: Request):
+    payload = await request.body()
+
     if not STRIPE_WEBHOOK_SECRET:
-        # If not set, accept as plaintext (dev only)
-        payload = await request.body()
         try:
             event = json.loads(payload.decode("utf-8"))
         except Exception:
             return PlainTextResponse("Invalid payload", status_code=400)
     else:
-        payload = await request.body()
         sig = request.headers.get("Stripe-Signature")
         try:
             event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
@@ -448,20 +579,17 @@ async def stripe_webhook(request: Request):
     etype = event.get("type", "")
     data = event.get("data", {}).get("object", {})
 
-    # Subscription created/updated/deleted => set user's plan + subscription id
     if etype in ("customer.subscription.created", "customer.subscription.updated"):
         sub = data
         customer_id = sub.get("customer")
         sub_id = sub.get("id")
         plan_code = (sub.get("metadata", {}) or {}).get("plan_code", "")
-        # Fallback to "plan.nickname" if needed
         if not plan_code:
             try:
                 plan_code = (sub["plan"]["nickname"] or "").lower()
             except:
                 plan_code = "premium"
 
-        # Find user by stripe_customer_id
         conn = db(); c = conn.cursor()
         c.execute("SELECT id FROM users WHERE stripe_customer_id=?", (customer_id,))
         r = c.fetchone(); conn.close()
@@ -482,9 +610,45 @@ async def stripe_webhook(request: Request):
     return PlainTextResponse("OK", status_code=200)
 
 # -------------------------------
+# Admin API
+# -------------------------------
+@app.get("/api/admin/users")
+def admin_list_users(_: dict = Depends(require_admin)):
+    conn = db(); c = conn.cursor()
+    c.execute("SELECT id, email, plan, stripe_customer_id, stripe_subscription_id FROM users ORDER BY id DESC")
+    rows = c.fetchall(); conn.close()
+    return [
+        {"id": r[0], "email": r[1], "plan": r[2], "stripe_customer_id": r[3], "stripe_subscription_id": r[4]}
+        for r in rows
+    ]
+
+@app.put("/api/admin/set-plan")
+def admin_set_plan(data: dict, _: dict = Depends(require_admin)):
+    uid = data.get("user_id")
+    plan = data.get("plan", "Free")
+    if not uid: raise HTTPException(status_code=400, detail="Missing user_id")
+    update_user_plan_and_stripe(int(uid), plan, None, None)
+    return {"success": True, "message": f"Plan updated to {plan}"}
+
+@app.delete("/api/admin/delete-user/{user_id}")
+def admin_delete_user(user_id: int, _: dict = Depends(require_admin)):
+    conn = db(); c = conn.cursor()
+    c.execute("DELETE FROM users WHERE id=?", (user_id,))
+    conn.commit(); conn.close()
+    return {"success": True, "message": "User deleted"}
+
+@app.post("/api/admin/impersonate/{user_id}")
+def admin_impersonate(user_id: int, _: dict = Depends(require_admin)):
+    row = get_user_by_id(user_id)
+    if not row: raise HTTPException(status_code=404, detail="User not found")
+    uid, email, _, plan, _, _ = row
+    token = create_token({"user_id": uid, "email": email, "plan": plan})
+    return {"success": True, "token": token, "email": email, "plan": plan}
+
+# -------------------------------
 # Root
 # -------------------------------
 @app.get("/")
 def root():
-    return {"message": "Welcome to HouseHive Backend API v5!"}
+    return {"ok": True, "name": "HouseHive.ai API"}
 
