@@ -7,8 +7,7 @@ jinja2==3.1.4
 sqlalchemy==2.0.29
 psycopg2-binary==2.9.9
 aiofiles==23.2.1
-
-# ✅ Pydantic (compatible and prebuilt)
 pydantic==2.6.1
 pydantic-core==2.16.2 --only-binary :all:
 openai
+ 
