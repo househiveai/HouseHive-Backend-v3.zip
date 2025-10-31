@@ -1,10 +1,14 @@
-pydantic-core==2.20.1 --only-binary :all:
 fastapi==0.110.0
-uvicorn[standard]==0.27.1
+uvicorn==0.30.1
 python-dotenv==1.0.1
-bcrypt==4.1.2
-PyJWT==2.8.0
-stripe==10.12.0
+stripe==9.5.0
+requests==2.32.3
+jinja2==3.1.4
+sqlalchemy==2.0.29
+psycopg2-binary==2.9.9
+aiofiles==23.2.1
+
+# ✅ Pydantic (compatible and prebuilt)
 pydantic==2.6.1
-python-multipart==0.0.9
+pydantic-core==2.16.2 --only-binary :all:
 openai
