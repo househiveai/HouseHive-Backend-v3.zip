@@ -71,18 +71,20 @@ def init_db():
             stripe_subscription_id TEXT
         )
     """)
-    # properties
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS properties (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT,
-            address TEXT,
-            rent REAL,
-            status TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )
-    """)
+# properties (per user)
+c.execute("""
+    CREATE TABLE IF NOT EXISTS properties (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        name TEXT,
+        address TEXT,
+        rent REAL,
+        rental_length INTEGER,  -- length of rental in months or days
+        status TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )
+""")
+
     # tasks (maintenance)
     c.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
