@@ -60,6 +60,7 @@ app.add_middleware(
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+
     # users
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -71,21 +72,22 @@ def init_db():
             stripe_subscription_id TEXT
         )
     """)
-# properties (per user)
-c.execute("""
-    CREATE TABLE IF NOT EXISTS properties (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        name TEXT,
-        address TEXT,
-        rent REAL,
-        rental_length INTEGER,  -- length of rental in months or days
-        status TEXT,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )
-""")
 
-    # tasks (maintenance)
+    # properties (per user)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS properties (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            name TEXT,
+            address TEXT,
+            rent REAL,
+            rental_length INTEGER,
+            status TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+
+    # tasks (per user)
     c.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,45 +96,14 @@ c.execute("""
             property_name TEXT,
             task TEXT,
             status TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY(user_id) REFERENCES users(id),
             FOREIGN KEY(property_id) REFERENCES properties(id)
         )
     """)
-    # tenants
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS tenants (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT,
-            email TEXT,
-            phone TEXT,
-            property_id INTEGER,
-            unit TEXT,
-            notes TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id),
-            FOREIGN KEY(property_id) REFERENCES properties(id)
-        )
-    """)
-    # reminders (rent reminders, etc.)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS reminders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            tenant_id INTEGER,
-            property_id INTEGER,
-            title TEXT,
-            message TEXT,
-            due_date TEXT,
-            sent INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY(user_id) REFERENCES users(id),
-            FOREIGN KEY(tenant_id) REFERENCES tenants(id),
-            FOREIGN KEY(property_id) REFERENCES properties(id)
-        )
-    """)
+
     conn.commit()
     conn.close()
+
 
 init_db()
 
