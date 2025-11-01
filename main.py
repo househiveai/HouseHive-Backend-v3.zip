@@ -193,7 +193,9 @@ class PropertyBody(BaseModel):
     name: str
     address: str
     rent: float
+    rental_length: Optional[int] = None
     status: str = "Active"
+
 
 class TaskBody(BaseModel):
     property_id: Optional[int] = None
@@ -329,9 +331,10 @@ def list_properties(user = Depends(get_current_user)):
 def create_property(body: PropertyBody, user = Depends(get_current_user)):
     conn = db(); c = conn.cursor()
     c.execute("""
-        INSERT INTO properties (user_id, name, address, rent, status)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user["user_id"], body.name, body.address, body.rent, body.status))
+        INSERT INTO properties (user_id, name, address, rent, rental_length, status)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user["user_id"], body.name, body.address, body.rent, body.rental_length, body.status))
+
     conn.commit(); pid = c.lastrowid; conn.close()
     return {"success": True, "id": pid}
 
