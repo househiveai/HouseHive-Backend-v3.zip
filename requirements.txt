@@ -10,7 +10,6 @@ psycopg2-binary==2.9.10
 aiofiles==23.2.1
 bcrypt
 pyjwt
-openai
 
 # --- Compatible Pydantic versions for new Python ---
 pydantic==2.9.2
