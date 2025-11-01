@@ -41,18 +41,21 @@ PLAN_PRICE_IDS = {
 # -------------------------------
 app = FastAPI(title="HouseHive Backend API v5")
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        FRONTEND_URL,
-        VERCEL_URL,
+        "https://househive.ai",
         "https://www.househive.ai",
+        "https://househive-frontend-vercel.vercel.app",
         "http://localhost:3000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # -------------------------------
 # DB INIT
