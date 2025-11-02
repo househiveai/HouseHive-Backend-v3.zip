@@ -46,7 +46,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 USE_FAKE_AI = not bool(OPENAI_API_KEY)
 if not USE_FAKE_AI:
     from openai import OpenAI
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 # -------------------------------
 # APP
