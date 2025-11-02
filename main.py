@@ -6,18 +6,11 @@ from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 import uvicorn
-
-# --- OpenAI (legacy SDK 0.28.1) ---
-# Do NOT instantiate Client() or pass 'proxies' (causes your error).
 import openai
-
-# --- Stripe ---
 import stripe
-
-# --- JWT (PyJWT) ---
 import jwt
 
 # ---------------------------
@@ -25,8 +18,6 @@ import jwt
 # ---------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
-# For 0.28.1, proxies should be set via standard env vars if needed:
-# HTTP_PROXY / HTTPS_PROXY (Render/Vercel pick these up automatically)
 openai.api_key = OPENAI_API_KEY
 
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
@@ -37,8 +28,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change_me_in_prod")
 JWT_ALG = os.getenv("JWT_ALG", "HS256")
 JWT_EXP_MIN = int(os.getenv("JWT_EXP_MIN", "60"))
 
-# Allow your Vercel frontend + local dev
-VERCEL_URL = os.getenv("VERCEL_URL", "")  # e.g., https://househive-frontend.vercel.app
+VERCEL_URL = os.getenv("VERCEL_URL", "")
 CORS_ORIGINS = list(
     filter(
         None,
@@ -54,11 +44,11 @@ CORS_ORIGINS = list(
 # ---------------------------
 # App bootstrap
 # ---------------------------
-app = FastAPI(title="HouseHive Backend", version="1.0.0")
+app = FastAPI(title="HouseHive Backend", version="1.0.1")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS or ["*"],  # you can restrict later
+    allow_origins=CORS_ORIGINS or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -74,8 +64,8 @@ class HealthResp(BaseModel):
     time: str
 
 class LoginRequest(BaseModel):
-    user_id: str = Field(..., description="Your app's user ID")
-    email: Optional[str] = None
+    user_id: Optional[str] = Field(None, description="User ID (optional)")
+    email: Optional[str] = Field(None, description="Email (optional)")
     name: Optional[str] = None
 
 class LoginResponse(BaseModel):
@@ -99,8 +89,8 @@ class ChatResponse(BaseModel):
     usage: Optional[Dict[str, Any]] = None
 
 class CheckoutSessionRequest(BaseModel):
-    price_id: str = Field(..., description="Stripe Price ID")
-    mode: str = Field(default="subscription")  # or 'payment'
+    price_id: str
+    mode: str = "subscription"
     success_url: str
     cancel_url: str
     customer_email: Optional[str] = None
@@ -144,21 +134,24 @@ def healthz():
 
 @app.get("/readyz", response_model=HealthResp)
 def readyz():
-    # extend with dependency checks if needed
     return HealthResp(status="ready", time=datetime.utcnow().isoformat() + "Z")
 
 # ---------------------------
-# Auth (simple demo)
+# Auth (frontend compatible)
 # ---------------------------
 @app.post("/auth/login", response_model=LoginResponse)
 def login(body: LoginRequest):
     """
-    Minimal demo login → returns JWT for frontend (Vercel) to store.
-    Replace with your real auth flow (e.g., Supabase/Auth0/Clerk).
+    Accepts either user_id or email and returns a JWT.
+    Compatible with simple frontend login forms (email + password).
     """
+    user_identifier = body.user_id or body.email
+    if not user_identifier:
+        raise HTTPException(status_code=400, detail="Missing user_id or email")
+
     token = create_jwt(
         {
-            "sub": body.user_id,
+            "sub": user_identifier,
             "email": body.email,
             "name": body.name,
             "scope": "user",
@@ -167,23 +160,15 @@ def login(body: LoginRequest):
     return LoginResponse(token=token, expires_in=JWT_EXP_MIN * 60)
 
 # ---------------------------
-# AI Chat (OpenAI 0.28.1)
+# AI Chat (OpenAI legacy SDK)
 # ---------------------------
 @app.post("/ai/chat", response_model=ChatResponse)
 def ai_chat(req: ChatRequest, _user=Depends(get_current_user)):
-    """
-    Calls OpenAI Chat Completions using the legacy SDK (0.28.1).
-    IMPORTANT:
-      • Do NOT instantiate openai.Client()
-      • Do NOT pass 'proxies' to any OpenAI object
-      • If you need a proxy, set HTTP_PROXY / HTTPS_PROXY env vars
-    """
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="Missing OPENAI_API_KEY")
 
     model = req.model or OPENAI_MODEL
     try:
-        # Legacy call format
         completion = openai.ChatCompletion.create(
             model=model,
             messages=[m.dict() for m in req.messages],
@@ -225,15 +210,12 @@ def create_checkout_session(body: CheckoutSessionRequest, _user=Depends(get_curr
 @app.post("/billing/webhook")
 async def stripe_webhook(request: Request):
     if not STRIPE_WEBHOOK_SECRET:
-        # If not set, accept raw payload (dev only)
         payload = await request.body()
         try:
             data = json.loads(payload.decode("utf-8"))
         except Exception:
             data = {}
-        # Do basic logging / branching
         event_type = data.get("type")
-        # TODO: handle event types
         return {"received": True, "unchecked": True, "type": event_type}
 
     payload = await request.body()
@@ -247,16 +229,12 @@ async def stripe_webhook(request: Request):
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    # Handle useful events
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        # TODO: mark user as active/premium in your DB
     elif event["type"] == "customer.subscription.updated":
         sub = event["data"]["object"]
-        # TODO: sync subscription status
     elif event["type"] == "customer.subscription.deleted":
         sub = event["data"]["object"]
-        # TODO: handle cancellation
 
     return {"received": True, "type": event["type"]}
 
@@ -268,7 +246,7 @@ def verify_token(_user=Depends(get_current_user)):
     return {"ok": True}
 
 # ---------------------------
-# Local run (Render uses a start command, but this helps local dev)
+# Local dev
 # ---------------------------
 if __name__ == "__main__":
     uvicorn.run(
