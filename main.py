@@ -40,9 +40,18 @@ CORS_ORIGINS = [
 
 
 # ---------------------------
-# APP INITIALIZATION
+# App bootstrap (CORS FIX)
 # ---------------------------
-app = FastAPI(title="HouseHive Backend", version="1.0.3")
+app = FastAPI(title="HouseHive Backend", version="1.0.1")
+
+# Add all known domains (www + non-www + Vercel + localhost)
+CORS_ORIGINS = [
+    "https://www.househive.ai",
+    "https://househive.ai",
+    "https://house-hive-frontend-js-brand-zip.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,6 +60,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 auth_scheme = HTTPBearer(auto_error=False)
 
