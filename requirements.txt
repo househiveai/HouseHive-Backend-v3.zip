@@ -3,8 +3,9 @@ uvicorn[standard]==0.22.0
 python-multipart==0.0.9
 bcrypt==4.1.2
 PyJWT==2.8.0
-stripe==6
+stripe==6.0.0
 requests==2.32.3
 python-dotenv==1.0.1
 openai==0.28.1
-pydantic>=1.10,<2
+pydantic>=1.10,<2.0
+gunicorn==21.2.0
