@@ -64,9 +64,9 @@ class HealthResp(BaseModel):
     time: str
 
 class LoginRequest(BaseModel):
-    user_id: Optional[str] = Field(None, description="User ID (optional)")
-    email: Optional[str] = Field(None, description="Email (optional)")
-    name: Optional[str] = None
+    email: str
+    password: str
+
 
 class LoginResponse(BaseModel):
     token: str
@@ -141,23 +141,19 @@ def readyz():
 # ---------------------------
 @app.post("/auth/login", response_model=LoginResponse)
 def login(body: LoginRequest):
-    """
-    Accepts either user_id or email and returns a JWT.
-    Compatible with simple frontend login forms (email + password).
-    """
-    user_identifier = body.user_id or body.email
-    if not user_identifier:
-        raise HTTPException(status_code=400, detail="Missing user_id or email")
+    # Demo: Accept any email/password combo for now
+    if not body.email or not body.password:
+        raise HTTPException(status_code=400, detail="Missing email or password")
 
-    token = create_jwt(
-        {
-            "sub": user_identifier,
-            "email": body.email,
-            "name": body.name,
-            "scope": "user",
-        }
-    )
+    # For production, verify password from database here.
+    token = create_jwt({
+        "sub": body.email,
+        "email": body.email,
+        "scope": "user"
+    })
+
     return LoginResponse(token=token, expires_in=JWT_EXP_MIN * 60)
+
 
 # ---------------------------
 # AI Chat (OpenAI legacy SDK)
