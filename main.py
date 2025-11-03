@@ -33,9 +33,11 @@ JWT_EXP_MIN = int(os.getenv("JWT_EXP_MIN", "60"))
 # ---------------------------
 CORS_ORIGINS = [
     "https://househive.ai",
+    "https://www.househive.ai",
     "https://house-hive-frontend-js-brand-zip.vercel.app",
     "http://localhost:3000",
 ]
+
 
 # ---------------------------
 # APP INITIALIZATION
