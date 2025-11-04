@@ -120,4 +120,4 @@ def get_me(token: str):
             raise HTTPException(status_code=401, detail="Invalid token")
         return {"email": email}
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")}
+        raise HTTPException(status_code=401, detail="Invalid token")
