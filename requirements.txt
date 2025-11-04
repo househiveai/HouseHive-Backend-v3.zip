@@ -1,10 +1,13 @@
 # --- Core server dependencies ---
 fastapi==0.110.0
 uvicorn[standard]==0.22.0
+gunicorn==21.2.0
 
 # --- Security & authentication ---
 PyJWT==2.8.0
 bcrypt==4.1.2
+passlib[bcrypt]==1.7.4
+python-jose==3.3.0
 
 # --- API helpers ---
 python-multipart==0.0.9
@@ -17,6 +20,3 @@ openai==0.28.1
 
 # --- Data validation ---
 pydantic>=1.10,<2.0
-
-# --- Web server (for Render) ---
-gunicorn==21.2.0
