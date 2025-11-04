@@ -33,13 +33,15 @@ JWT_EXP_MIN = int(os.getenv("JWT_EXP_MIN", "60"))
 app = FastAPI(title="HouseHive Backend", version="2.0")
 
 # ✅ Explicit CORS Fix (final)
+app = FastAPI(title="HouseHive Backend", version="1.0.3")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://househive.ai",
         "https://www.househive.ai",
-        "https://househive-frontend.vercel.app",
-        "http://localhost:3000",
+        "https://house-hive-frontend-js-brand-zip.vercel.app",
+        "http://localhost:3000"
     ],
     allow_credentials=True,
     allow_methods=["*"],
