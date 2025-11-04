@@ -2,6 +2,8 @@
 fastapi==0.110.0
 uvicorn[standard]==0.22.0
 gunicorn==21.2.0
+SQLAlchemy==2.0.36
+
 
 # --- Security & authentication ---
 PyJWT==2.8.0
