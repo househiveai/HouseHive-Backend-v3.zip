@@ -37,6 +37,7 @@ engine = create_engine(DATABASE_URL, future=True, echo=False, connect_args=conne
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 Base = declarative_base()
 
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -45,7 +46,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+
 Base.metadata.create_all(bind=engine)
+
 
 def get_db() -> Session:
     db = SessionLocal()
@@ -54,21 +57,26 @@ def get_db() -> Session:
     finally:
         db.close()
 
+
 # -----------------------------
 # Security
 # -----------------------------
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+
 def hash_password(plain: str) -> str:
     return pwd_ctx.hash(plain)
 
+
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_ctx.verify(plain, hashed)
+
 
 def create_access_token(sub: str) -> str:
     exp = dt.datetime.utcnow() + dt.timedelta(minutes=JWT_EXPIRES_MIN)
     payload = {"sub": sub, "exp": exp}
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
 
 def get_current_user(db: Session = Depends(get_db), token: Optional[str] = None):
     """
@@ -76,6 +84,7 @@ def get_current_user(db: Session = Depends(get_db), token: Optional[str] = None)
     FastAPI dependency to extract/verify user from JWT.
     """
     from fastapi import Request
+
     def _extract_token(req: Request) -> Optional[str]:
         auth = req.headers.get("authorization") or req.headers.get("Authorization")
         if not auth:
@@ -86,22 +95,16 @@ def get_current_user(db: Session = Depends(get_db), token: Optional[str] = None)
         return None
 
     from fastapi import Request
-    # obtain request via dependency injection hack:
-    # create inner dependency to access request
     async def _dep(request: Request):
         return request
 
-    # Actually get token from header
     try:
         from starlette.requests import Request as StarletteRequest
         # no-op, just to ensure import
     except Exception:
         pass
 
-    # Since we can't inject Request directly here cleanly, re-read header in handler:
-    # Instead, we rely on the fact that routes using this dependency pass token via header.
     if token is None:
-        # Fallback: raise 401; routes pass header, axios attaches token
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
 
     try:
@@ -117,8 +120,11 @@ def get_current_user(db: Session = Depends(get_db), token: Optional[str] = None)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
 
+
 # Helper to extract bearer token as a parameter dependency
 from fastapi import Header
+
+
 def bearer_token(authorization: Optional[str] = Header(None)) -> Optional[str]:
     if not authorization:
         return None
@@ -126,6 +132,7 @@ def bearer_token(authorization: Optional[str] = Header(None)) -> Optional[str]:
     if len(parts) == 2 and parts[0].lower() == "bearer":
         return parts[1]
     return None
+
 
 # -----------------------------
 # Schemas
@@ -139,41 +146,61 @@ class UserOut(BaseModel):
     class Config:
         from_attributes = True
 
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     name: Optional[str] = None
 
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
 
+
 # -----------------------------
 # App & CORS
 # -----------------------------
 app = FastAPI(title="HouseHive Backend", version="3.0.0")
 
+# ✅ Explicit CORS fix for Vercel frontend
+origins = [
+    "https://househive-frontend.vercel.app",
+    "https://www.househive.ai",
+    "https://househive.ai",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS if CORS_ORIGINS else ["*"],
-    allow_credentials=False,  # we use Bearer tokens in headers; not cookies
-    allow_methods=["*"],
+    allow_origins=origins,
+    allow_credentials=True,   # allows Authorization headers
+    allow_methods=["*"],      # includes OPTIONS
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "househive-backend-v3", "time": dt.datetime.utcnow().isoformat()}
+    return {
+        "ok": True,
+        "service": "househive-backend-v3",
+        "time": dt.datetime.utcnow().isoformat(),
+    }
+
 
 # -----------------------------
 # Auth Router: /api/auth/*
 # -----------------------------
 auth = APIRouter(prefix="/api/auth", tags=["auth"])
+
 
 @auth.post("/register", response_model=UserOut, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
@@ -190,6 +217,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     db.refresh(user)
     return user
 
+
 @auth.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email.lower()).first()
@@ -198,9 +226,14 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     token = create_access_token(sub=user.email)
     return TokenResponse(access_token=token, user=user)
 
+
 @auth.get("/me", response_model=UserOut)
-def me(token: Optional[str] = Depends(bearer_token), user: User = Depends(lambda db=Depends(get_db), token=Depends(bearer_token): get_current_user(db, token))):
+def me(
+    token: Optional[str] = Depends(bearer_token),
+    user: User = Depends(lambda db=Depends(get_db), token=Depends(bearer_token): get_current_user(db, token)),
+):
     return user
+
 
 app.include_router(auth)
 
@@ -208,5 +241,5 @@ app.include_router(auth)
 # Notes:
 # - Uses Bearer tokens via Authorization header.
 # - No cookies required; avoids cross-site cookie headaches on Vercel/Render.
-# - Set CORS_ORIGINS to your Vercel domain(s) in env.
+# - CORS fixed for Vercel, localhost, and custom domains.
 # -----------------------------
