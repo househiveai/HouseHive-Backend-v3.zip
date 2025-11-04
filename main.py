@@ -195,6 +195,47 @@ def me(user: User = Depends(get_current_user)):
 
 
 app.include_router(auth)
+# -----------------------------
+# AI Router: /api/ai/*
+# -----------------------------
+from fastapi import Body
+import openai
+
+AI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+
+ai = APIRouter(prefix="/api/ai", tags=["ai"])
+
+@ai.post("/chat")
+def ai_chat(payload: dict = Body(...)):
+    """Simple AI relay route"""
+    if not AI_API_KEY:
+        raise HTTPException(status_code=500, detail="AI API key not configured")
+    try:
+        user_message = payload.get("message", "")
+        if not user_message:
+            raise HTTPException(status_code=400, detail="Missing message")
+
+        # Initialize OpenAI client
+        from openai import OpenAI
+        client = OpenAI(api_key=AI_API_KEY)
+
+        # Chat completion
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are HiveBot, a helpful AI property assistant."},
+                {"role": "user", "content": user_message},
+            ],
+        )
+
+        reply = completion.choices[0].message.content
+        return {"reply": reply}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+
+# Include AI router
+app.include_router(ai)
 
 # -----------------------------
 # Notes:
