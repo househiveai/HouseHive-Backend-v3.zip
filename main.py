@@ -119,3 +119,18 @@ def get_me(token: str):
         return {"email": email}
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+# ---- SHIM ROUTES: support /api/* paths that the frontend currently calls ----
+@app.post("/api/auth/register")
+def register_user_api(req: RegisterRequest):
+    # call the existing handler so logic stays in one place
+    return register_user(req)
+
+@app.post("/api/auth/login")
+def login_user_api(req: LoginRequest):
+    return login_user(req)
+
+@app.get("/api/auth/me")
+def get_me_api(token: str):
+    return get_me(token)
+# ---------------------------------------------------------------------------
