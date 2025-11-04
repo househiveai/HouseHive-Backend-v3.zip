@@ -22,3 +22,5 @@ openai==0.28.1
 
 # --- Data validation ---
 pydantic>=1.10,<2.0
+pydantic[email]==2.9.2
+
