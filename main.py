@@ -5,21 +5,20 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 
-# -------------------------------------------------------
-# CONFIG
-# -------------------------------------------------------
-app = FastAPI(title="HouseHive Backend v3", version="1.0.0")
+app = FastAPI()
 
-SECRET_KEY = "househive_secret_key_123"  # change this before production
+SECRET_KEY = "househive_secret_key_123"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-# CORS
+# ✅ CORS setup
 origins = [
     "https://househive.ai",
     "https://www.househive.ai",
-    "http://localhost:3000",
+    "https://househive-frontend.vercel.app",  # optional
+    "http://localhost:3000",  # for local testing
 ]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -28,9 +27,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-fake_users_db = {}  # Temporary in-memory store
+fake_users_db = {}
 
 
 # -------------------------------------------------------
