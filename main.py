@@ -1,9 +1,9 @@
 # main.py
 import os
 import datetime as dt
-from typing import Optional
+from typing import Optional, List
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import APIRouter
 from pydantic import BaseModel, EmailStr, Field
@@ -19,12 +19,6 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./househive.db")
 JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
 JWT_ALG = "HS256"
 JWT_EXPIRES_MIN = int(os.getenv("JWT_EXPIRES_MIN", "60"))  # 60 minutes default
-CORS_ORIGINS = [
-    # Comma-separated env like: https://househive-frontend.vercel.app,https://www.househive.ai
-    *[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
 
 # -----------------------------
 # DB Setup (SQLAlchemy)
@@ -59,6 +53,18 @@ def get_db() -> Session:
 
 
 # -----------------------------
+# Helper: Extract Bearer Token
+# -----------------------------
+def bearer_token(authorization: Optional[str] = Header(None)) -> Optional[str]:
+    if not authorization:
+        return None
+    parts = authorization.split()
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1]
+    return None
+
+
+# -----------------------------
 # Security
 # -----------------------------
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -78,14 +84,9 @@ def create_access_token(sub: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
-def get_current_user(
-    db: Session = Depends(get_db),
-    token: Optional[str] = Depends(bearer_token),
-):
-    """Return the authenticated user extracted from the bearer token."""
+def get_current_user(db: Session = Depends(get_db), token: Optional[str] = Depends(bearer_token)):
     if token is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
-
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
         email = payload.get("sub")
@@ -98,19 +99,6 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
-
-
-# Helper to extract bearer token as a parameter dependency
-from fastapi import Header
-
-
-def bearer_token(authorization: Optional[str] = Header(None)) -> Optional[str]:
-    if not authorization:
-        return None
-    parts = authorization.split()
-    if len(parts) == 2 and parts[0].lower() == "bearer":
-        return parts[1]
-    return None
 
 
 # -----------------------------
@@ -148,7 +136,6 @@ class TokenResponse(BaseModel):
 # -----------------------------
 app = FastAPI(title="HouseHive Backend", version="3.0.0")
 
-# ✅ Explicit CORS fix for Vercel frontend
 origins = [
     "https://househive-frontend.vercel.app",
     "https://www.househive.ai",
@@ -168,11 +155,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {
-        "ok": True,
-        "service": "househive-backend-v3",
-        "time": dt.datetime.utcnow().isoformat(),
-    }
+    return {"ok": True, "service": "househive-backend-v3", "time": dt.datetime.utcnow().isoformat()}
 
 
 # -----------------------------
@@ -215,7 +198,7 @@ app.include_router(auth)
 
 # -----------------------------
 # Notes:
-# - Uses Bearer tokens via Authorization header.
-# - No cookies required; avoids cross-site cookie headaches on Vercel/Render.
-# - CORS fixed for Vercel, localhost, and custom domains.
+# - Fixes NameError by defining bearer_token first.
+# - Keeps same logic, routes, and dependencies.
+# - Fully compatible with your frontend api.js.
 # -----------------------------
