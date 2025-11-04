@@ -1,9 +1,9 @@
 # main.py
 import os
 import datetime as dt
-from typing import Optional, List
+from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, status, Response
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import APIRouter
 from pydantic import BaseModel, EmailStr, Field
@@ -78,32 +78,11 @@ def create_access_token(sub: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
-def get_current_user(db: Session = Depends(get_db), token: Optional[str] = None):
-    """
-    Token is read from Authorization: Bearer <token>.
-    FastAPI dependency to extract/verify user from JWT.
-    """
-    from fastapi import Request
-
-    def _extract_token(req: Request) -> Optional[str]:
-        auth = req.headers.get("authorization") or req.headers.get("Authorization")
-        if not auth:
-            return None
-        parts = auth.split()
-        if len(parts) == 2 and parts[0].lower() == "bearer":
-            return parts[1]
-        return None
-
-    from fastapi import Request
-    async def _dep(request: Request):
-        return request
-
-    try:
-        from starlette.requests import Request as StarletteRequest
-        # no-op, just to ensure import
-    except Exception:
-        pass
-
+def get_current_user(
+    db: Session = Depends(get_db),
+    token: Optional[str] = Depends(bearer_token),
+):
+    """Return the authenticated user extracted from the bearer token."""
     if token is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
 
@@ -228,10 +207,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @auth.get("/me", response_model=UserOut)
-def me(
-    token: Optional[str] = Depends(bearer_token),
-    user: User = Depends(lambda db=Depends(get_db), token=Depends(bearer_token): get_current_user(db, token)),
-):
+def me(user: User = Depends(get_current_user)):
     return user
 
 
