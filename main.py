@@ -3,9 +3,8 @@ import os
 import datetime as dt
 from typing import Optional, List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-import os
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
     create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, func
@@ -13,7 +12,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-import requests  # used for optional OpenAI call (no openai sdk dependency)
+import requests  # used for optional OpenAI call
 
 # =============================
 # CONFIG
@@ -23,7 +22,6 @@ JWT_SECRET   = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
 JWT_ALG      = "HS256"
 JWT_EXPIRES_MIN = int(os.getenv("JWT_EXPIRES_MIN", "60"))
 
-# Comma-separated domains in env, plus local + your Vercel domains
 CORS_ORIGINS = [
     *[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
     "http://localhost:3000",
@@ -33,17 +31,8 @@ CORS_ORIGINS = [
     "https://www.househive.ai",
 ]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,   # ✅ use the list you have
-    allow_credentials=True,       # ✅ allow Authorization header
-    allow_methods=["*"],          # ✅ allow GET, POST, PUT, DELETE
-    allow_headers=["*"],          # ✅ allow custom headers
-)
-
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()  # use any chat-capable model you have
+OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
 
 # =============================
 # DB SETUP
@@ -94,7 +83,7 @@ class Task(Base):
     id          = Column(Integer, primary_key=True, index=True)
     title       = Column(String(255), nullable=False)
     description = Column(String(1024))
-    status      = Column(String(50), default="open", index=True)  # "open" | "done"
+    status      = Column(String(50), default="open", index=True)
     property_id = Column(Integer, ForeignKey("properties.id"), nullable=True, index=True)
     owner_email = Column(String(255), nullable=False, index=True)
     created_at  = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -232,10 +221,13 @@ class ChatResponse(BaseModel):
     reply: str
 
 # =============================
-# APP & CORS
+# ✅ CREATE APP FIRST
 # =============================
 app = FastAPI(title="HouseHive Backend", version="3.0.0")
 
+# =============================
+# ✅ THEN APPLY CORS MIDDLEWARE
+# =============================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -292,7 +284,7 @@ def list_properties(db: Session = Depends(get_db), user: User = Depends(get_curr
 app.include_router(prop)
 
 # =============================
-# TENANT ROUTES (linked to properties)
+# TENANTS
 # =============================
 ten = APIRouter(prefix="/api/tenants", tags=["tenants"])
 
@@ -311,7 +303,7 @@ def list_tenants(db: Session = Depends(get_db), user: User = Depends(get_current
 app.include_router(ten)
 
 # =============================
-# TASK ROUTES
+# TASKS
 # =============================
 tsk = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -328,7 +320,6 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db), user: User =
 def list_tasks(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return db.query(Task).filter(Task.owner_email == user.email).order_by(Task.created_at.desc()).all()
 
-# Optional: mark task done
 @tsk.post("/{task_id}/done", response_model=TaskOut)
 def mark_done(task_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     t = db.query(Task).filter(Task.id == task_id, Task.owner_email == user.email).first()
@@ -338,18 +329,16 @@ def mark_done(task_id: int, db: Session = Depends(get_db), user: User = Depends(
 app.include_router(tsk)
 
 # =============================
-# REMINDER ROUTES
+# REMINDERS
 # =============================
 rem = APIRouter(prefix="/api/reminders", tags=["reminders"])
 
 @rem.post("/", response_model=ReminderOut)
 def create_reminder(payload: ReminderCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if payload.property_id:
-        if not db.query(Property).filter(Property.id == payload.property_id, Property.owner_email == user.email).first():
-            raise HTTPException(status_code=404, detail="Property not found")
-    if payload.tenant_id:
-        if not db.query(Tenant).filter(Tenant.id == payload.tenant_id, Tenant.owner_email == user.email).first():
-            raise HTTPException(status_code=404, detail="Tenant not found")
+    if payload.property_id and not db.query(Property).filter(Property.id == payload.property_id, Property.owner_email == user.email).first():
+        raise HTTPException(status_code=404, detail="Property not found")
+    if payload.tenant_id and not db.query(Tenant).filter(Tenant.id == payload.tenant_id, Tenant.owner_email == user.email).first():
+        raise HTTPException(status_code=404, detail="Tenant not found")
     r = Reminder(
         title=payload.title, due_date=payload.due_date,
         property_id=payload.property_id, tenant_id=payload.tenant_id,
@@ -375,24 +364,25 @@ def get_insights(db: Session = Depends(get_db), user: User = Depends(get_current
     tc = db.query(Tenant).filter(Tenant.owner_email == user.email).count()
     oc = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").count()
     rc = db.query(Reminder).filter(Reminder.owner_email == user.email).count()
+
     if pc == 0:
         return {"summary": "No data yet. Add your first property to get started!", "property_count": 0, "tenant_count": 0, "open_tasks": 0, "reminders": 0}
+
     summary = f"{pc} propert{'y' if pc == 1 else 'ies'} with {oc} open maintenance request{'s' if oc != 1 else ''}. {rc} reminder{'s' if rc != 1 else ''} scheduled."
     return {"summary": summary, "property_count": pc, "tenant_count": tc, "open_tasks": oc, "reminders": rc}
 
 app.include_router(ins)
 
 # =============================
-# AI CHAT (optional; degrades gracefully if no key)
+# AI CHAT
 # =============================
 ai = APIRouter(prefix="/api/ai", tags=["ai"])
 
 @ai.post("/chat", response_model=ChatResponse)
 def ai_chat(req: ChatRequest, user: User = Depends(get_current_user)):
     if not OPENAI_API_KEY:
-        # Always succeed, so the UI doesn't error
-        return ChatResponse(reply="HiveBot is online. Connect your OPENAI_API_KEY on the backend to enable real AI replies.")
-    # Minimal REST call; avoids openai python SDK version issues
+        return ChatResponse(reply="HiveBot is online. Add your OPENAI_API_KEY on the backend to enable real AI responses.")
+
     try:
         r = requests.post(
             "https://api.openai.com/v1/chat/completions",
