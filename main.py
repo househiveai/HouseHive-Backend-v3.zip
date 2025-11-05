@@ -3,8 +3,9 @@ import os
 import datetime as dt
 from typing import Optional, List
 
-from fastapi import FastAPI, Depends, HTTPException, status, Header, APIRouter
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
     create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, func
@@ -233,19 +234,19 @@ class ChatResponse(BaseModel):
 # =============================
 # APP & CORS
 # =============================
-app = FastAPI(title="HouseHive Backend", version="3.3.0")
+app = FastAPI(title="HouseHive Backend", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS if CORS_ORIGINS else ["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=False,
 )
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "househive-backend", "time": dt.datetime.utcnow().isoformat()}
+    return {"ok": True, "service": "househive-backend", "status": "running"}
 
 # =============================
 # AUTH ROUTES
