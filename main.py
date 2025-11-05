@@ -179,9 +179,15 @@ auth = APIRouter(prefix="/api/auth", tags=["auth"])
 @auth.post("/register", response_model=UserOut, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     try:
-        user = User(email=payload.email.lower(), name=payload.name, password_hash=hash_password(payload.password))
-        db.add(user); db.commit(); db.refresh(user)
-        return user
+        user = User(
+            email=payload.email.lower(),
+            name=payload.name,
+            password_hash=hash_password(payload.password)
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return UserOut.model_validate(user)   # ✅ FIXED
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already registered")
@@ -191,11 +197,16 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     u = db.query(User).filter(User.email == payload.email.lower()).first()
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    return TokenResponse(access_token=create_access_token(u.email), user=u)
+    
+    return TokenResponse(
+        access_token=create_access_token(u.email),
+        user=UserOut.model_validate(u)         # ✅ FIXED
+    )
 
 @auth.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
-    return user
+    return UserOut.model_validate(user)        # ✅ SAFE
+
 
 # =============================
 # PASSWORD RESET
