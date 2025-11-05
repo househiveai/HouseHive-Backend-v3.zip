@@ -1,27 +1,8 @@
-# --- Core server dependencies ---
-fastapi==0.115.2
-uvicorn==0.30.6
-gunicorn==21.2.0
+fastapi==0.95.2
+uvicorn==0.22.0
 SQLAlchemy==2.0.36
-
 pydantic==1.10.15
 email-validator==2.2.0
-
-# --- Security & authentication ---
-PyJWT==2.8.0
-bcrypt==4.1.2
-passlib[bcrypt]==1.7.4
 python-jose==3.3.0
-
-# --- API helpers ---
-python-multipart==0.0.9
+passlib[bcrypt]==1.7.4
 requests==2.32.3
-python-dotenv==1.0.1
-
-# --- Integrations ---
-stripe==6.0.0
-openai==0.28.1
-
-# --- Data validation ---
-
-
