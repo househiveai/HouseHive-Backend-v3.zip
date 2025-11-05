@@ -6,3 +6,4 @@ python-multipart
 passlib[bcrypt]
 SQLAlchemy==1.4.49
 python-jose[cryptography]
+requests==2.31.0
