@@ -284,6 +284,42 @@ def me(user: User = Depends(get_current_user)):
 
 app.include_router(auth)
 
+from fastapi import BackgroundTasks
+
+def send_reset_email(email: str, token: str):
+    # For now we only log it — later we connect Mailgun/Sendgrid
+    print(f"Password reset link for {email}: https://househive.ai/reset-password?token={token}")
+
+@auth.post("/forgot")
+def forgot_password(email: EmailStr, background: BackgroundTasks, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email.lower()).first()
+    if not user:
+        return {"message": "If that email is registered, a reset link was sent."}
+
+    reset_token = create_access_token(user.email)
+    background.add_task(send_reset_email, user.email, reset_token)
+    return {"message": "If that email is registered, a reset link was sent."}
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=6)
+
+@auth.post("/reset", response_model=UserOut)
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    try:
+        email = jwt.decode(data.token, JWT_SECRET, algorithms=[JWT_ALG]).get("sub")
+    except:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.password_hash = hash_password(data.new_password)
+    db.commit()
+    db.refresh(user)
+    return user
+
 # =============================
 # PROPERTIES
 # =============================
