@@ -202,7 +202,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         # Log the exception details for debugging purposes (e.g., using a logger)
         print(f"An unexpected error occurred: {e}")
         raise HTTPException(status_code=500, detail="Minimum 8 characters required for password")
-        )
+        
 
 
 @auth.post("/login", response_model=TokenResponse)
