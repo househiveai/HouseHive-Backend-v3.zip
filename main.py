@@ -155,16 +155,21 @@ class UserOut(BaseModel):
     email: EmailStr
     name: Optional[str]
     created_at: dt.datetime
-    class Config: from_attributes = True
+
+    class Config:
+        orm_mode = True   # ✅ Required for .from_orm()
+
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6)
     name: Optional[str] = None
 
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -187,25 +192,27 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         db.add(user)
         db.commit()
         db.refresh(user)
-        return UserOut.model_validate(user)   # ✅ FIXED
+        return UserOut.from_orm(user)   # ✅ Fixed - Pydantic 1 style
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already registered")
+
 
 @auth.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     u = db.query(User).filter(User.email == payload.email.lower()).first()
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+
     return TokenResponse(
         access_token=create_access_token(u.email),
-        user=UserOut.model_validate(u)         # ✅ FIXED
+        user=UserOut.from_orm(u)        # ✅ Fixed
     )
+
 
 @auth.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
-    return UserOut.model_validate(user)        # ✅ SAFE
+    return UserOut.from_orm(user)       # ✅ Fixed
 
 
 # =============================
@@ -213,6 +220,7 @@ def me(user: User = Depends(get_current_user)):
 # =============================
 def send_reset_email(email: str, token: str):
     print(f"Password reset link for {email}: https://househive.ai/reset-password?token={token}")
+
 
 @auth.post("/forgot")
 def forgot_password(email: EmailStr, background: BackgroundTasks, db: Session = Depends(get_db)):
@@ -222,9 +230,11 @@ def forgot_password(email: EmailStr, background: BackgroundTasks, db: Session = 
         background.add_task(send_reset_email, user.email, reset_token)
     return {"message": "If that email is registered, a reset link was sent."}
 
+
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=6)
+
 
 @auth.post("/reset", response_model=UserOut)
 def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
@@ -232,11 +242,15 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
         email = jwt.decode(data.token, JWT_SECRET, algorithms=[JWT_ALG]).get("sub")
     except:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
+
     user = db.query(User).filter(User.email == email).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     user.password_hash = hash_password(data.new_password)
-    db.commit(); db.refresh(user)
-    return user
+    db.commit()
+    db.refresh(user)
+    return UserOut.from_orm(user)   # ✅ Fixed
 
 app.include_router(auth)
 
