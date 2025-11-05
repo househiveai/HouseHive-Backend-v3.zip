@@ -23,15 +23,24 @@ JWT_SECRET      = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
 JWT_ALG         = "HS256"
 JWT_EXPIRES_MIN = int(os.getenv("JWT_EXPIRES_MIN", "60"))
 
-CORS_ORIGINS = [
-    *[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://househive-frontend.vercel.app",
-    "https://househive-frontend-*.vercel.app",
-    "https://househive.ai",
-    "https://www.househive.ai",
-]
+
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://househive-frontend.vercel.app",
+        "https://househive.ai",
+        "https://www.househive.ai"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
