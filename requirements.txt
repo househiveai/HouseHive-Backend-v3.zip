@@ -1,10 +1,10 @@
 # --- Core server dependencies ---
-fastapi==0.110.0
-uvicorn[standard]==0.22.0
+fastapi==0.115.2
+uvicorn==0.30.6
 gunicorn==21.2.0
 SQLAlchemy==2.0.36
 
-pydantic[email]==2.9.2
+pydantic==1.10.15
 email-validator==2.2.0
 
 # --- Security & authentication ---
