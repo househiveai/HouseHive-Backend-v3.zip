@@ -223,7 +223,18 @@ class ChatResponse(BaseModel):
 # =============================
 # ✅ CREATE APP FIRST
 # =============================
-app = FastAPI(title="HouseHive Backend", version="3.0.0")
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # TEMP: allow all for now
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # =============================
 # ✅ THEN APPLY CORS MIDDLEWARE
