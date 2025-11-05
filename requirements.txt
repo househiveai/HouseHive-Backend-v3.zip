@@ -1,8 +1,8 @@
-fastapi==0.95.2
-uvicorn==0.22.0
-SQLAlchemy==2.0.36
-pydantic==1.10.15
-email-validator==2.2.0
-python-jose==3.3.0
-passlib[bcrypt]==1.7.4
-requests==2.32.3
+fastapi==0.103.2
+pydantic==1.10.12
+starlette==0.27.0
+uvicorn==0.23.2
+python-multipart
+passlib[bcrypt]
+SQLAlchemy==1.4.49
+python-jose[cryptography]
