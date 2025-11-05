@@ -32,6 +32,15 @@ CORS_ORIGINS = [
     "https://www.househive.ai",
 ]
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,   # ✅ use the list you have
+    allow_credentials=True,       # ✅ allow Authorization header
+    allow_methods=["*"],          # ✅ allow GET, POST, PUT, DELETE
+    allow_headers=["*"],          # ✅ allow custom headers
+)
+
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()  # use any chat-capable model you have
 
