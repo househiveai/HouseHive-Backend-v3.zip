@@ -14,6 +14,7 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 import requests  # used for optional OpenAI call
 
+
 # =============================
 # CONFIG
 # =============================
@@ -22,17 +23,19 @@ JWT_SECRET   = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
 JWT_ALG      = "HS256"
 JWT_EXPIRES_MIN = int(os.getenv("JWT_EXPIRES_MIN", "60"))
 
+# ✅ Your real frontend domains **must be here**
 CORS_ORIGINS = [
-    *[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()],
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://househive-frontend.vercel.app",
     "https://househive.ai",
     "https://www.househive.ai",
+    # ✅ Your Vercel deployment:
+    "https://househive-frontend-c6g16o9yc-househives-projects.vercel.app",
 ]
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+
 
 # =============================
 # DB SETUP
@@ -48,6 +51,7 @@ def get_db() -> Session:
         yield db
     finally:
         db.close()
+
 
 # =============================
 # MODELS
@@ -101,6 +105,7 @@ class Reminder(Base):
 
 Base.metadata.create_all(bind=engine)
 
+
 # =============================
 # SECURITY
 # =============================
@@ -129,6 +134,7 @@ def get_current_user(db: Session = Depends(get_db), token: Optional[str] = Depen
     user = db.query(User).filter(User.email == email).first()
     if not user: raise HTTPException(status_code=401, detail="User not found")
     return user
+
 
 # =============================
 # SCHEMAS
@@ -220,25 +226,13 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
 
-# =============================
-# ✅ CREATE APP FIRST
-# =============================
-from fastapi.middleware.cors import CORSMiddleware
 
+# =============================
+# ✅ CREATE APP
+# =============================
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # TEMP: allow all for now
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# =============================
-# ✅ THEN APPLY CORS MIDDLEWARE
-# =============================
+# ✅ APPLY CORS ONCE — CORRECTLY
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -250,6 +244,7 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"ok": True, "service": "househive-backend", "status": "running"}
+
 
 # =============================
 # AUTH ROUTES
@@ -277,6 +272,7 @@ def me(user: User = Depends(get_current_user)):
 
 app.include_router(auth)
 
+
 # =============================
 # PROPERTY ROUTES
 # =============================
@@ -293,6 +289,7 @@ def list_properties(db: Session = Depends(get_db), user: User = Depends(get_curr
     return db.query(Property).filter(Property.owner_email == user.email).order_by(Property.created_at.desc()).all()
 
 app.include_router(prop)
+
 
 # =============================
 # TENANTS
@@ -312,6 +309,7 @@ def list_tenants(db: Session = Depends(get_db), user: User = Depends(get_current
     return db.query(Tenant).filter(Tenant.owner_email == user.email).order_by(Tenant.created_at.desc()).all()
 
 app.include_router(ten)
+
 
 # =============================
 # TASKS
@@ -339,6 +337,7 @@ def mark_done(task_id: int, db: Session = Depends(get_db), user: User = Depends(
 
 app.include_router(tsk)
 
+
 # =============================
 # REMINDERS
 # =============================
@@ -364,6 +363,7 @@ def list_reminders(db: Session = Depends(get_db), user: User = Depends(get_curre
 
 app.include_router(rem)
 
+
 # =============================
 # INSIGHTS
 # =============================
@@ -383,6 +383,7 @@ def get_insights(db: Session = Depends(get_db), user: User = Depends(get_current
     return {"summary": summary, "property_count": pc, "tenant_count": tc, "open_tasks": oc, "reminders": rc}
 
 app.include_router(ins)
+
 
 # =============================
 # AI CHAT
