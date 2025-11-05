@@ -196,6 +196,13 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already registered")
+   
+    except Exception as e:
+        db.rollback() # Ensure rollback for any other exception too
+        # Log the exception details for debugging purposes (e.g., using a logger)
+        print(f"An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail="Minimum 8 characters required for password")
+        )
 
 
 @auth.post("/login", response_model=TokenResponse)
