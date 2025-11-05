@@ -251,13 +251,16 @@ def health():
 # =============================
 auth = APIRouter(prefix="/api/auth", tags=["auth"])
 
-@auth.post("/register", response_model=UserOut, status_code=201)
+@auth.post("/register", response_model=TokenResponse, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == payload.email.lower()).first():
         raise HTTPException(status_code=409, detail="Email already registered")
     user = User(email=payload.email.lower(), name=payload.name, password_hash=hash_password(payload.password))
     db.add(user); db.commit(); db.refresh(user)
-    return user
+
+    token = create_access_token(user.email)
+    return TokenResponse(access_token=token, user=user)
+
 
 @auth.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
