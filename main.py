@@ -259,6 +259,31 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     db.refresh(user)
     return UserOut.from_orm(user)   # ✅ Fixed
 
+
+
+insights = APIRouter(prefix="/api/insights", tags=["insights"])
+
+@insights.get("/")
+def get_insights(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    property_count = db.query(Property).filter(Property.owner_email == user.email).count()
+    tenant_count = db.query(Tenant).filter(Tenant.owner_email == user.email).count()
+    open_tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").count()
+    reminders = db.query(Reminder).filter(Reminder.owner_email == user.email).count()
+
+    summary = f"You currently have {property_count} properties, {tenant_count} tenants, " \
+              f"{open_tasks} open tasks, and {reminders} reminders."
+
+    return {
+        "summary": summary,
+        "property_count": property_count,
+        "tenant_count": tenant_count,
+        "open_tasks": open_tasks,
+        "reminders": reminders
+    }
+
+app.include_router(insights)
+
+
 app.include_router(auth)
 
 # =============================
