@@ -50,22 +50,20 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
 # APP + CORS
 # =============================
 CORS_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://househive-frontend.vercel.app",
-    "https://househive.ai",
-    "https://www.househive.ai",
-]
-
-app = FastAPI(title="HouseHive Backend", version="3.0.0")
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,   # ✅ FIXED
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://househive-frontend.vercel.app",
+        "https://househive.ai",
+        "https://www.househive.ai",
+    ],
+    allow_credentials=True,          # ✅ REQUIRED for login cookies
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "Authorization"],  # ✅ add Authorization explicitly
 )
+
 
 
 # =============================
