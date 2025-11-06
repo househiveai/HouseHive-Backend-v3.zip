@@ -245,15 +245,16 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         "user": UserOut.from_orm(u)
     })
 
-    res.set_cookie(
-        key="refresh_token",
-        value=refresh,
-        httponly=True,
-        max_age=60 * 60 * 24 * 30,   # 30 days
-        secure=True,
-        samesite="None",             # ✅ required for cross-domain cookies
-        path="/"
-    )
+res.set_cookie(
+    key="refresh_token",
+    value=refresh,
+    httponly=True,
+    secure=True,       # MUST be True for production
+    samesite="None",   # MUST be "None" for cross-site cookie
+    max_age=60*60*24*30,
+    path="/"
+)
+
 
     return res
 
