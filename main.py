@@ -5,6 +5,7 @@ from typing import Optional, List
 
 from fastapi import Cookie
 from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter, BackgroundTasks
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
@@ -69,6 +70,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
 
 
 
@@ -234,21 +241,18 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Email already registered")
 
 
-from fastapi.responses import JSONResponse
+@app.post("/api/register", response_model=UserOut, status_code=201)
+def legacy_api_register(payload: UserCreate, db: Session = Depends(get_db)):
+    return register(payload, db)
 
-@auth.post("/login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    u = db.query(User).filter(User.email == payload.email.lower()).first()
 
-    if not u or not verify_password(payload.password, u.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    access = create_access_token(u.email)
-    refresh = jwt.encode({"sub": u.email}, JWT_SECRET, algorithm=JWT_ALG)
+def _login_response(user: User) -> JSONResponse:
+    access = create_access_token(user.email)
+    refresh = jwt.encode({"sub": user.email}, JWT_SECRET, algorithm=JWT_ALG)
 
     response = JSONResponse({
         "access_token": access,
-        "user": UserOut.from_orm(u)
+        "user": UserOut.from_orm(user)
     })
 
     response.set_cookie(
@@ -262,6 +266,30 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     )
 
     return response
+
+
+def _perform_login(payload: LoginRequest, db: Session) -> JSONResponse:
+    user = db.query(User).filter(User.email == payload.email.lower()).first()
+
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    return _login_response(user)
+
+
+@auth.post("/login")
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    return _perform_login(payload, db)
+
+
+@app.post("/api/login")
+def legacy_api_login(payload: LoginRequest, db: Session = Depends(get_db)):
+    return _perform_login(payload, db)
+
+
+@app.post("/auth/login")
+def legacy_auth_login(payload: LoginRequest, db: Session = Depends(get_db)):
+    return _perform_login(payload, db)
 
 
 @auth.get("/me", response_model=UserOut)
