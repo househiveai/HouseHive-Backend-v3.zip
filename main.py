@@ -190,14 +190,14 @@ class TokenResponse(BaseModel):
 # =============================
 # AUTH ROUTES
 # =============================
-from fastapi import Cookie
-from fastapi.responses import JSONResponse
-
 auth = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @auth.post("/refresh")
-def refresh_token(refresh_token: Optional[str] = Cookie(None), db: Session = Depends(get_db)):
+def refresh_token(
+    refresh_token: Optional[str] = Cookie(None),
+    db: Session = Depends(get_db)
+):
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Missing refresh token")
 
@@ -226,49 +226,46 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
         return UserOut.from_orm(user)
+
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already registered")
 
 
+from fastapi.responses import JSONResponse
+
 @auth.post("/login")
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     u = db.query(User).filter(User.email == payload.email.lower()).first()
+
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     access = create_access_token(u.email)
     refresh = jwt.encode({"sub": u.email}, JWT_SECRET, algorithm=JWT_ALG)
 
-    res = JSONResponse({
+    response = JSONResponse({
         "access_token": access,
         "user": UserOut.from_orm(u)
     })
 
-res.set_cookie(
-    key="refresh_token",
-    value=refresh,
-    httponly=True,
-    secure=True,       # MUST be True for production
-    samesite="None",   # MUST be "None" for cross-site cookie
-    max_age=60*60*24*30,
-    path="/"
-)
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh,
+        httponly=True,
+        secure=True,
+        samesite="None",
+        max_age=60 * 60 * 24 * 30,  # 30 days
+        path="/"
+    )
 
-
-    return res
-
-
-@auth.post("/logout")
-def logout():
-    res = JSONResponse({"message": "Logged out"})
-    res.set_cookie("refresh_token", "", max_age=0, path="/")
-    return res
+    return response
 
 
 @auth.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return UserOut.from_orm(user)
+
 
 # =============================
 # PASSWORD RESET
