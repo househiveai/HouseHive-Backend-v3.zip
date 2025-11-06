@@ -3,6 +3,7 @@ import os
 import datetime as dt
 from typing import Optional, List
 
+from fastapi import Cookie
 from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
@@ -184,7 +185,29 @@ class TokenResponse(BaseModel):
 # =============================
 # AUTH ROUTES
 # =============================
+from fastapi import Cookie
+from fastapi.responses import JSONResponse
+
 auth = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+@auth.post("/refresh")
+def refresh_token(refresh_token: Optional[str] = Cookie(None), db: Session = Depends(get_db)):
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Missing refresh token")
+
+    try:
+        email = jwt.decode(refresh_token, JWT_SECRET, algorithms=[JWT_ALG]).get("sub")
+    except:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    new_access = create_access_token(email)
+    return {"access_token": new_access}
+
 
 @auth.post("/register", response_model=UserOut, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
@@ -202,15 +225,40 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already registered")
 
-@auth.post("/login", response_model=TokenResponse)
+
+@auth.post("/login")
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     u = db.query(User).filter(User.email == payload.email.lower()).first()
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    return TokenResponse(
-        access_token=create_access_token(u.email),
-        user=UserOut.from_orm(u)
+
+    access = create_access_token(u.email)
+    refresh = jwt.encode({"sub": u.email}, JWT_SECRET, algorithm=JWT_ALG)
+
+    res = JSONResponse({
+        "access_token": access,
+        "user": UserOut.from_orm(u)
+    })
+
+    res.set_cookie(
+        key="refresh_token",
+        value=refresh,
+        httponly=True,
+        max_age=60 * 60 * 24 * 30,   # 30 days
+        secure=True,
+        samesite="None",             # ✅ required for cross-domain cookies
+        path="/"
     )
+
+    return res
+
+
+@auth.post("/logout")
+def logout():
+    res = JSONResponse({"message": "Logged out"})
+    res.set_cookie("refresh_token", "", max_age=0, path="/")
+    return res
+
 
 @auth.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
