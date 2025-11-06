@@ -18,16 +18,25 @@ import requests
 # =============================
 # CONFIG
 # =============================
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./househive.db")
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-    future=True
-)
-
+# ✅ Safe database configuration
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        future=True,
+        echo=False
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        future=True,
+        echo=False
+    )
 
 JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
 JWT_ALG = "HS256"
@@ -37,11 +46,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
 
 # =============================
-# APP + CORS (Correct Final Version)
-# =============================
-
-# =============================
-# CORS ORIGIN LIST
+# APP + CORS
 # =============================
 CORS_ORIGINS = [
     "http://localhost:3000",
@@ -51,9 +56,7 @@ CORS_ORIGINS = [
     "https://www.househive.ai",
 ]
 
-
 app = FastAPI(title="HouseHive Backend", version="3.0.0")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -61,7 +64,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 # =============================
 # DB SETUP
@@ -163,21 +165,16 @@ class UserOut(BaseModel):
     email: EmailStr
     name: Optional[str]
     created_at: dt.datetime
-
-    class Config:
-        orm_mode = True   # ✅ Required for .from_orm()
-
+    class Config: orm_mode = True
 
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6)
     name: Optional[str] = None
 
-
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -200,42 +197,30 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
         db.add(user)
         db.commit()
         db.refresh(user)
-        return UserOut.from_orm(user)   # ✅ Fixed - Pydantic 1 style
+        return UserOut.from_orm(user)
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already registered")
-   
-    except Exception as e:
-        db.rollback() # Ensure rollback for any other exception too
-        # Log the exception details for debugging purposes (e.g., using a logger)
-        print(f"An unexpected error occurred: {e}")
-        raise HTTPException(status_code=500, detail="Minimum 8 characters required for password")
-        
-
 
 @auth.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     u = db.query(User).filter(User.email == payload.email.lower()).first()
     if not u or not verify_password(payload.password, u.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-
     return TokenResponse(
         access_token=create_access_token(u.email),
-        user=UserOut.from_orm(u)        # ✅ Fixed
+        user=UserOut.from_orm(u)
     )
-
 
 @auth.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
-    return UserOut.from_orm(user)       # ✅ Fixed
-
+    return UserOut.from_orm(user)
 
 # =============================
 # PASSWORD RESET
 # =============================
 def send_reset_email(email: str, token: str):
     print(f"Password reset link for {email}: https://househive.ai/reset-password?token={token}")
-
 
 @auth.post("/forgot")
 def forgot_password(email: EmailStr, background: BackgroundTasks, db: Session = Depends(get_db)):
@@ -245,11 +230,9 @@ def forgot_password(email: EmailStr, background: BackgroundTasks, db: Session = 
         background.add_task(send_reset_email, user.email, reset_token)
     return {"message": "If that email is registered, a reset link was sent."}
 
-
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=6)
-
 
 @auth.post("/reset", response_model=UserOut)
 def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
@@ -257,18 +240,17 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
         email = jwt.decode(data.token, JWT_SECRET, algorithms=[JWT_ALG]).get("sub")
     except:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
-
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-
     user.password_hash = hash_password(data.new_password)
     db.commit()
     db.refresh(user)
-    return UserOut.from_orm(user)   # ✅ Fixed
+    return UserOut.from_orm(user)
 
-
-
+# =============================
+# INSIGHTS
+# =============================
 insights = APIRouter(prefix="/api/insights", tags=["insights"])
 
 @insights.get("/")
@@ -278,8 +260,10 @@ def get_insights(db: Session = Depends(get_db), user: User = Depends(get_current
     open_tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").count()
     reminders = db.query(Reminder).filter(Reminder.owner_email == user.email).count()
 
-    summary = f"You currently have {property_count} properties, {tenant_count} tenants, " \
-              f"{open_tasks} open tasks, and {reminders} reminders."
+    summary = (
+        f"You have {property_count} properties, {tenant_count} tenants, "
+        f"{open_tasks} open tasks, and {reminders} reminders."
+    )
 
     return {
         "summary": summary,
@@ -289,18 +273,5 @@ def get_insights(db: Session = Depends(get_db), user: User = Depends(get_current
         "reminders": reminders
     }
 
-app.include_router(insights)
-
-
 app.include_router(auth)
-
-# =============================
-# PROPERTIES / TENANTS / TASKS / REMINDERS / INSIGHTS / AI
-# (UNCHANGED - WORKING AND KEPT EXACTLY AS BEFORE)
-# =============================
-
-# (To save space — these routes remain exactly as previously working in your file)
-
-# ✅ If you want, I can paste ALL again, but you don't need to change them.
-
-
+app.include_router(insights)
