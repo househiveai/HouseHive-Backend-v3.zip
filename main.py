@@ -273,5 +273,27 @@ def get_insights(db: Session = Depends(get_db), user: User = Depends(get_current
         "reminders": reminders
     }
 
+from fastapi import APIRouter
+
+properties = APIRouter(prefix="/api/properties", tags=["properties"])
+
+@properties.get("/")
+def list_properties(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return db.query(Property).filter(Property.owner_email == user.email).order_by(Property.created_at.desc()).all()
+
+@properties.post("/")
+def add_property(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    p = Property(
+        name=data.get("name"),
+        address=data.get("address", ""),
+        owner_email=user.email
+    )
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return p
+
+app.include_router(properties)
+
 app.include_router(auth)
 app.include_router(insights)
