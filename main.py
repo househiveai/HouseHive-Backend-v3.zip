@@ -270,13 +270,26 @@ def me(user: User = Depends(get_current_user)):
 def send_reset_email(email: str, token: str):
     print(f"Password reset link for {email}: https://househive.ai/reset-password?token={token}")
 
+class ForgotRequest(BaseModel):
+    email: EmailStr
+
 @auth.post("/forgot")
-def forgot_password(email: EmailStr, background: BackgroundTasks, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == email.lower()).first()
+def forgot_password(
+    data: ForgotRequest,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    email = data.email.lower().strip()
+
+    user = db.query(User).filter(User.email == email).first()
+
     if user:
         reset_token = create_access_token(user.email)
         background.add_task(send_reset_email, user.email, reset_token)
+
+    # Always return success so we don't leak who has an account
     return {"message": "If that email is registered, a reset link was sent."}
+
 
 class ResetPasswordRequest(BaseModel):
     token: str
