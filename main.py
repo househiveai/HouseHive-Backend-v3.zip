@@ -5,6 +5,7 @@ from typing import Optional, List
 
 from fastapi import Cookie
 from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter, BackgroundTasks
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
@@ -241,10 +242,12 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     access = create_access_token(u.email)
     refresh = jwt.encode({"sub": u.email}, JWT_SECRET, algorithm=JWT_ALG)
 
-    response = JSONResponse({
-        "access_token": access,
-        "user": UserOut.from_orm(u)
-    })
+    token_payload = TokenResponse(
+        access_token=access,
+        user=UserOut.from_orm(u)
+    )
+
+    response = JSONResponse(jsonable_encoder(token_payload))
 
     response.set_cookie(
         key="refresh_token",
