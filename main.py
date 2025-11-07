@@ -313,6 +313,47 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     return UserOut.from_orm(user)
 
 # =============================
+# AI CHAT ROUTE
+# =============================
+from fastapi import APIRouter
+from pydantic import BaseModel
+from openai import OpenAI
+
+ai = APIRouter(prefix="/api/ai", tags=["ai"])
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+class ChatMessage(BaseModel):
+    message: str
+    history: list = []
+
+@ai.post("/chat")
+def chat(payload: ChatMessage, user: User = Depends(get_current_user)):
+    messages = []
+
+    # Load past conversation
+    for m in payload.history:
+        if m["role"] in ("user", "assistant"):
+            messages.append({"role": m["role"], "content": m["content"]})
+
+    # Add new user message
+    messages.append({"role": "user", "content": payload.message})
+
+    completion = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=messages,
+        temperature=0.7,
+    )
+
+    reply = completion.choices[0].message.content.strip()
+
+    return {
+        "reply": reply,
+        "history": messages + [{"role": "assistant", "content": reply}]
+    }
+
+app.include_router(ai)
+
+# =============================
 # INSIGHTS
 # =============================
 insights = APIRouter(prefix="/api/insights", tags=["insights"])
