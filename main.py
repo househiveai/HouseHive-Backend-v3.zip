@@ -19,25 +19,20 @@ import requests
 # =============================
 # CONFIG
 # =============================
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./househive.db")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://househive_db_user:853bkQc9s9y7oWVmGnpjqt8G8zlWRDJp@dpg-d45u9hvdiees738h3f80-a.oregon-postgres.render.com/househive_db",
+)
 
 # ✅ Safe database configuration
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        future=True,
-        echo=False
-    )
-else:
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        future=True,
-        echo=False
-    )
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+    future=True,
+    echo=False
+)
 
 JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
 JWT_ALG = "HS256"
