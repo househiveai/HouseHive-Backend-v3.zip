@@ -2,6 +2,7 @@
 import os
 import datetime as dt
 from typing import Optional, List
+from fastapi import Depends
 
 from fastapi import Cookie
 from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter, BackgroundTasks
@@ -315,7 +316,6 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
 # =============================
 # AI CHAT ROUTE
 # =============================
-from fastapi import APIRouter
 from pydantic import BaseModel
 from openai import OpenAI
 
@@ -330,10 +330,12 @@ class ChatMessage(BaseModel):
 def chat(payload: ChatMessage, user: User = Depends(get_current_user)):
     messages = []
 
-    # Load past conversation
+    # Rebuild conversation history safely
     for m in payload.history:
-        if m["role"] in ("user", "assistant"):
-            messages.append({"role": m["role"], "content": m["content"]})
+        role = m.get("role")
+        content = m.get("content")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
 
     # Add new user message
     messages.append({"role": "user", "content": payload.message})
@@ -348,10 +350,11 @@ def chat(payload: ChatMessage, user: User = Depends(get_current_user)):
 
     return {
         "reply": reply,
-        "history": messages + [{"role": "assistant", "content": reply}]
+        "history": messages + [{"role": "assistant", "content": reply}],
     }
 
 app.include_router(ai)
+
 
 # =============================
 # INSIGHTS
