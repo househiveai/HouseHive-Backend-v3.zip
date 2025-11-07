@@ -398,22 +398,22 @@ Open Tasks: {context["open_tasks"]}
 
     messages = [{"role": "system", "content": system_prompt}]
 
+    # include previous conversation
     for m in payload.history:
         if m["role"] in ("user", "assistant"):
             messages.append(m)
 
+    # current user message
     messages.append({"role": "user", "content": payload.message})
 
+    # ✅ NEW OpenAI call format (works with openai>=1.3.5 + gpt-4.1-mini)
     response = client.chat.completions.create(
-    model=OPENAI_MODEL,
-    messages=messages,
-    temperature=0.6,
-)
+        model=OPENAI_MODEL,
+        messages=messages,
+        temperature=0.6,
+    )
 
-reply = response.choices[0].message.content.strip()
-
-
-    reply = completion.choices[0].message.content.strip()
+    reply = response.choices[0].message.content.strip()
 
     # ✅ Offer message drafting
     if "send" in payload.message.lower() or "message" in payload.message.lower():
@@ -432,6 +432,7 @@ reply = response.choices[0].message.content.strip()
         "reply": reply,
         "history": messages + [{"role": "assistant", "content": reply}]
     }
+
 
 
 app.include_router(ai)
