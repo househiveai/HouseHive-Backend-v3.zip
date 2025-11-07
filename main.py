@@ -404,11 +404,14 @@ Open Tasks: {context["open_tasks"]}
 
     messages.append({"role": "user", "content": payload.message})
 
-    completion = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=messages,
-        temperature=0.6,
-    )
+    response = client.chat.completions.create(
+    model=OPENAI_MODEL,
+    messages=messages,
+    temperature=0.6,
+)
+
+reply = response.choices[0].message.content.strip()
+
 
     reply = completion.choices[0].message.content.strip()
 
