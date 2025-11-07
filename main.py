@@ -313,6 +313,28 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     db.refresh(user)
     return UserOut.from_orm(user)
 
+def get_context_for_user(db: Session, user_id: int):
+    properties = db.query(Property).filter(Property.owner_id == user_id).all()
+    tenants = db.query(Tenant).filter(Tenant.owner_id == user_id).all()
+    tasks = db.query(Task).filter(Task.owner_id == user_id, Task.completed == False).all()
+
+    context = {
+        "properties": [
+            {"id": p.id, "name": p.name, "address": p.address}
+            for p in properties
+        ],
+        "tenants": [
+            {"id": t.id, "name": t.name, "property": t.property_id, "phone": t.phone, "email": t.email}
+            for t in tenants
+        ],
+        "open_tasks": [
+            {"id": t.id, "title": t.title, "property": t.property_id, "due": t.due_date}
+            for t in tasks
+        ],
+    }
+
+    return context
+
 # =============================
 # AI CHAT ROUTE
 # =============================
@@ -327,31 +349,48 @@ class ChatMessage(BaseModel):
     history: list = []
 
 @ai.post("/chat")
-def chat(payload: ChatMessage, user: User = Depends(get_current_user)):
-    messages = []
+def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    context = get_context_for_user(db, user.id)
 
-    # Rebuild conversation history safely
+    system_prompt = f"""
+You are HIVEBOT — the AI Smart Property Assistant for HouseHive.ai.
+You help property owners manage tenants, rentals, maintenance, and guest communication.
+
+You ALWAYS:
+- Respond clearly, friendly, concise, and confident.
+- Use the facts from CONTEXT below when relevant.
+- If requesting clarification, ask 1 precise question.
+- Offer to take the next action (create task, log reminder, generate message, etc.)
+
+CONTEXT (not shown to user):
+Properties: {context["properties"]}
+Tenants: {context["tenants"]}
+Open Tasks: {context["open_tasks"]}
+"""
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # include history
     for m in payload.history:
-        role = m.get("role")
-        content = m.get("content")
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content})
+        if m["role"] in ("user", "assistant"):
+            messages.append({"role": m["role"], "content": m["content"]})
 
-    # Add new user message
+    # add new question
     messages.append({"role": "user", "content": payload.message})
 
     completion = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=messages,
-        temperature=0.7,
+        temperature=0.6,
     )
 
     reply = completion.choices[0].message.content.strip()
 
     return {
         "reply": reply,
-        "history": messages + [{"role": "assistant", "content": reply}],
+        "history": messages + [{"role": "assistant", "content": reply}]
     }
+
 
 app.include_router(ai)
 
