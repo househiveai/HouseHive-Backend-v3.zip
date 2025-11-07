@@ -407,11 +407,13 @@ Open Tasks: {context["open_tasks"]}
     messages.append({"role": "user", "content": payload.message})
 
     # ✅ NEW OpenAI call format (works with openai>=1.3.5 + gpt-4.1-mini)
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=messages,
-        temperature=0.6,
-    )
+    completion = client.chat.completions.create(
+    model=OPENAI_MODEL,
+    messages=messages,
+    temperature=0.6,
+)
+reply = completion.choices[0].message.content.strip()
+
 
     reply = response.choices[0].message.content.strip()
 
