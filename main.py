@@ -344,9 +344,42 @@ from openai import OpenAI
 ai = APIRouter(prefix="/api/ai", tags=["ai"])
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+
+# ✅ Helper function to generate message drafts
+def draft_message(action: str, recipient_name: str, details: str):
+    templates = {
+        "rent_reminder": f"""
+Hi {recipient_name},
+
+This is a friendly reminder that rent is due soon. {details}
+
+Thank you!
+""".strip(),
+
+        "maintenance_update": f"""
+Hi {recipient_name},
+
+Quick update regarding maintenance: {details}
+
+Thank you for your patience.
+""".strip(),
+
+        "appointment": f"""
+Hi {recipient_name},
+
+I wanted to confirm the appointment time: {details}
+
+Please reply if any changes are needed.
+""".strip(),
+    }
+
+    return templates.get(action, f"Message to {recipient_name}: {details}")
+
+
 class ChatMessage(BaseModel):
     message: str
     history: list = []
+
 
 @ai.post("/chat")
 def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -370,14 +403,15 @@ Open Tasks: {context["open_tasks"]}
 
     messages = [{"role": "system", "content": system_prompt}]
 
-    # include history
+    # include conversation history
     for m in payload.history:
         if m["role"] in ("user", "assistant"):
-            messages.append({"role": m["role"], "content": m["content"]})
+            messages.append(m)
 
-    # add new question
+    # add new user question
     messages.append({"role": "user", "content": payload.message})
 
+    # ✅ OpenAI completion call
     completion = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=messages,
@@ -386,6 +420,10 @@ Open Tasks: {context["open_tasks"]}
 
     reply = completion.choices[0].message.content.strip()
 
+    # ✅ Ask user if they want a message drafted
+    if "send" in payload.message.lower() or "message" in payload.message.lower():
+        reply += "\n\nWould you like me to draft a message for you to send? (yes/no)"
+
     return {
         "reply": reply,
         "history": messages + [{"role": "assistant", "content": reply}]
@@ -393,6 +431,18 @@ Open Tasks: {context["open_tasks"]}
 
 
 app.include_router(ai)
+
+
+# ✅ Message Draft Endpoint
+class DraftRequest(BaseModel):
+    recipient: str
+    action: str
+    details: str
+
+@ai.post("/draft")
+def generate_draft(payload: DraftRequest, user: User = Depends(get_current_user)):
+    text = draft_message(payload.action, payload.recipient, payload.details)
+    return {"draft": text}
 
 
 # =============================
