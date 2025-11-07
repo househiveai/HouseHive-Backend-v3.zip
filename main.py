@@ -345,7 +345,7 @@ ai = APIRouter(prefix="/api/ai", tags=["ai"])
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-# ✅ Helper function to generate message drafts
+# ✅ Helper function for message drafting
 def draft_message(action: str, recipient_name: str, details: str):
     templates = {
         "rent_reminder": f"""
@@ -388,12 +388,7 @@ def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depen
     system_prompt = f"""
 You are HIVEBOT — the AI Smart Property Assistant for HouseHive.ai.
 You help property owners manage tenants, rentals, maintenance, and guest communication.
-
-You ALWAYS:
-- Respond clearly, friendly, concise, and confident.
-- Use the facts from CONTEXT below when relevant.
-- If requesting clarification, ask 1 precise question.
-- Offer to take the next action (create task, log reminder, generate message, etc.)
+Be clear, helpful, concise, and proactive.
 
 CONTEXT (not shown to user):
 Properties: {context["properties"]}
@@ -403,15 +398,12 @@ Open Tasks: {context["open_tasks"]}
 
     messages = [{"role": "system", "content": system_prompt}]
 
-    # include conversation history
     for m in payload.history:
         if m["role"] in ("user", "assistant"):
             messages.append(m)
 
-    # add new user question
     messages.append({"role": "user", "content": payload.message})
 
-    # ✅ OpenAI completion call
     completion = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=messages,
@@ -420,9 +412,18 @@ Open Tasks: {context["open_tasks"]}
 
     reply = completion.choices[0].message.content.strip()
 
-    # ✅ Ask user if they want a message drafted
+    # ✅ Offer message drafting
     if "send" in payload.message.lower() or "message" in payload.message.lower():
         reply += "\n\nWould you like me to draft a message for you to send? (yes/no)"
+
+    # ✅ Offer task creation
+    task_keywords = [
+        "fix", "repair", "broken", "issue", "leak", "replace",
+        "maintenance", "problem", "schedule", "coming to look", "needs to be done"
+    ]
+
+    if any(word in payload.message.lower() for word in task_keywords):
+        reply += "\n\nWould you like me to create a task for this? (yes/no)"
 
     return {
         "reply": reply,
