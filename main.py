@@ -5,6 +5,7 @@ from typing import Optional, List
 
 from fastapi import Cookie
 from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter, BackgroundTasks
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
@@ -19,25 +20,20 @@ import requests
 # =============================
 # CONFIG
 # =============================
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./househive.db")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://househive_db_user:853bkQc9s9y7oWVmGnpjqt8G8zlWRDJp@dpg-d45u9hvdiees738h3f80-a.oregon-postgres.render.com/househive_db",
+)
 
 # ✅ Safe database configuration
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        future=True,
-        echo=False
-    )
-else:
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        future=True,
-        echo=False
-    )
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+    future=True,
+    echo=False
+)
 
 JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
 JWT_ALG = "HS256"
@@ -246,10 +242,12 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     access = create_access_token(u.email)
     refresh = jwt.encode({"sub": u.email}, JWT_SECRET, algorithm=JWT_ALG)
 
-    response = JSONResponse({
-        "access_token": access,
-        "user": UserOut.from_orm(u)
-    })
+    token_payload = TokenResponse(
+        access_token=access,
+        user=UserOut.from_orm(u)
+    )
+
+    response = JSONResponse(jsonable_encoder(token_payload))
 
     response.set_cookie(
         key="refresh_token",
