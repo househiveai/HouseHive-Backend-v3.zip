@@ -336,72 +336,132 @@ def get_context_for_user(db: Session, user_id: int):
     return context
 
 # =============================
-# AI CHAT ROUTE (FIXED)
+# AI CHAT ROUTE (robust)
 # =============================
 from pydantic import BaseModel
 from openai import OpenAI
+import os
+from fastapi import HTTPException
 
 ai = APIRouter(prefix="/api/ai", tags=["ai"])
-client = OpenAI(api_key=OPENAI_API_KEY)
 
-def draft_message(action: str, recipient_name: str, details: str):
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip()
+
+if not OPENAI_API_KEY:
+    # Fail fast at boot, but with a clear message in logs
+    print("[AI] OPENAI_API_KEY is not set. /api/ai/* will return 502.")
+    client = None
+else:
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+def draft_message(action: str, recipient_name: str, details: str) -> str:
     templates = {
-        "rent_reminder": f"Hi {recipient_name},\n\nThis is a friendly reminder that rent is due soon. {details}\n\nThank you!",
-        "maintenance_update": f"Hi {recipient_name},\n\nQuick update regarding maintenance: {details}\n\nThank you for your patience.",
-        "appointment": f"Hi {recipient_name},\n\nI wanted to confirm the appointment time: {details}\n\nPlease reply if any changes are needed."
+        "rent_reminder": f"""Hi {recipient_name},
+
+This is a friendly reminder that rent is due soon. {details}
+
+Thank you!""".strip(),
+
+        "maintenance_update": f"""Hi {recipient_name},
+
+Quick update regarding maintenance: {details}
+
+Thank you for your patience.""".strip(),
+
+        "appointment": f"""Hi {recipient_name},
+
+I wanted to confirm the appointment time: {details}
+
+Please reply if any changes are needed.""".strip(),
     }
     return templates.get(action, f"Message to {recipient_name}: {details}")
+
 
 class ChatMessage(BaseModel):
     message: str
     history: list = []
 
+
 @ai.post("/chat")
 def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # Early guard if the SDK couldn't be constructed
+    if client is None:
+        raise HTTPException(status_code=502, detail="AI backend not configured")
+
     context = get_context_for_user(db, user.id)
 
     system_prompt = f"""
-You are HIVEBOT, the AI Property Assistant for HouseHive.ai.
-Be clear, concise, friendly, and proactive.
+You are HIVEBOT — the AI Smart Property Assistant for HouseHive.ai.
+You help property owners manage tenants, rentals, maintenance, and guest communication.
+
+You ALWAYS:
+- Respond clearly, friendly, concise, and confident.
+- Use the facts from CONTEXT below when relevant.
+- If requesting clarification, ask 1 precise question.
+- Offer to take the next action (create task, log reminder, generate message, etc.)
 
 CONTEXT (not shown to user):
 Properties: {context["properties"]}
 Tenants: {context["tenants"]}
 Open Tasks: {context["open_tasks"]}
-"""
+""".strip()
 
     messages = [{"role": "system", "content": system_prompt}]
 
-    for m in payload.history:
-        if m["role"] in ("user", "assistant"):
-            messages.append(m)
+    # include conversation history safely
+    for m in payload.history or []:
+        role = m.get("role")
+        content = m.get("content")
+        if role in ("user", "assistant") and isinstance(content, str):
+            messages.append({"role": role, "content": content})
 
+    # add new user message
     messages.append({"role": "user", "content": payload.message})
 
-    # ✅ OpenAI request (works with openai==1.35.13+)
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=messages,
-        temperature=0.6,
-    )
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=messages,
+            temperature=0.6,
+        )
+        reply = (response.choices[0].message.content or "").strip()
+    except Exception as e:
+        # Print full error to Render logs, return a safe 502 to the client
+        print("[AI] OpenAI error:", repr(e))
+        raise HTTPException(status_code=502, detail="AI backend error")
 
-    reply = response.choices[0].message.content.strip()
-
-    # Offer drafting
+    # Offer message drafting if user appears to ask for it
     if "send" in payload.message.lower() or "message" in payload.message.lower():
-        reply += "\n\nWould you like me to draft a message to send? (yes/no)"
+        reply += "\n\nWould you like me to draft a message for you to send? (yes/no)"
 
-    # Offer task creation
-    task_words = ["fix", "repair", "broken", "issue", "leak", "replace", "maintenance", "problem", "schedule"]
-    if any(w in payload.message.lower() for w in task_words):
-        reply += "\n\nShould I create a task for this? (yes/no)"
+    # Offer task creation if it sounds like a maintenance issue
+    task_keywords = [
+        "fix", "repair", "broken", "issue", "leak", "replace",
+        "maintenance", "problem", "schedule", "coming to look", "needs to be done"
+    ]
+    if any(k in payload.message.lower() for k in task_keywords):
+        reply += "\n\nWould you like me to create a task for this? (yes/no)"
 
     return {
         "reply": reply,
-        "history": messages + [{"role": "assistant", "content": reply}]
+        "history": messages + [{"role": "assistant", "content": reply}],
     }
 
+
 app.include_router(ai)
+
+
+# Optional: message draft endpoint
+class DraftRequest(BaseModel):
+    recipient: str
+    action: str
+    details: str
+
+@ai.post("/draft")
+def generate_draft(payload: DraftRequest, user: User = Depends(get_current_user)):
+    return {"draft": draft_message(payload.action, payload.recipient, payload.details)}
 
 
 # =============================
