@@ -420,7 +420,7 @@ Open Tasks: {context["open_tasks"]}
     # add new user message
     messages.append({"role": "user", "content": payload.message})
 
-    try:
+try:
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=messages,
@@ -431,7 +431,8 @@ Open Tasks: {context["open_tasks"]}
 
 except Exception as e:
     print("AI Error:", e)
-    raise HTTPException(status_code=500, detail="HiveBot could not connect to AI")
+    raise HTTPException(status_code=500, detail="HiveBot could not connect to the AI API")
+
 
 
     # Offer message drafting if user appears to ask for it
