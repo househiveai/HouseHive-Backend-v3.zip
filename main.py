@@ -23,18 +23,21 @@ import requests
 # =============================
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://househive_db_user:853bkQc9s9y7oWVmGnpjqt8G8zlWRDJp@dpg-d45u9hvdiees738h3f80-a.oregon-postgres.render.com/househive_db",
+    "postgresql://househive_db_user:853bkQc9s9y7oWVmGnpjqt8G8zlWRDJp@dpg-d45u9hvdiees738h3f80-a.oregon-postgres.render.com/househive_db?sslmode=require",
 )
+
 
 # ✅ Safe database configuration
 engine = create_engine(
     DATABASE_URL,
+    connect_args={"sslmode": "require"},
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
     future=True,
-    echo=False
+    echo=False,
 )
+
 
 JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
 JWT_ALG = "HS256"
