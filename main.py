@@ -421,16 +421,18 @@ Open Tasks: {context["open_tasks"]}
     messages.append({"role": "user", "content": payload.message})
 
     try:
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=messages,
-            temperature=0.6,
-        )
-        reply = (response.choices[0].message.content or "").strip()
-    except Exception as e:
-        # Print full error to Render logs, return a safe 502 to the client
-        print("[AI] OpenAI error:", repr(e))
-        raise HTTPException(status_code=502, detail="AI backend error")
+    response = client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=messages,
+        temperature=0.6,
+    )
+
+    reply = response.choices[0].message.content.strip()
+
+except Exception as e:
+    print("AI Error:", e)
+    raise HTTPException(status_code=500, detail="HiveBot could not connect to AI")
+
 
     # Offer message drafting if user appears to ask for it
     if "send" in payload.message.lower() or "message" in payload.message.lower():
