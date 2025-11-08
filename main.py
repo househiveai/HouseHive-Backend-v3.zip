@@ -337,40 +337,33 @@ def get_context_for_user(db: Session, user_id: int):
     return context
 
 # =============================
-# AI CHAT ROUTE (FIXED + STABLE)
+# AI CHAT ROUTE (OpenAI 1.x Correct)
 # =============================
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
-import openai
+from openai import OpenAI
 
 ai = APIRouter(prefix="/api/ai", tags=["ai"])
 
-# Ensure key
-openai.api_key = OPENAI_API_KEY
-MODEL_NAME = OPENAI_MODEL or "gpt-4o-mini"
+client = OpenAI(api_key=OPENAI_API_KEY)
+MODEL_NAME = OPENAI_MODEL or "gpt-4.1-mini"
+
 
 class ChatMessage(BaseModel):
     message: str
     history: list = []
 
-def draft_message(action: str, recipient_name: str, details: str) -> str:
-    templates = {
-        "rent_reminder": f"Hi {recipient_name},\n\nThis is a friendly reminder that rent is due soon. {details}\n\nThank you!",
-        "maintenance_update": f"Hi {recipient_name},\n\nQuick update regarding maintenance: {details}\n\nThank you for your patience.",
-        "appointment": f"Hi {recipient_name},\n\nI wanted to confirm the appointment time: {details}\n\nPlease reply if any changes are needed.",
-    }
-    return templates.get(action, f"Message to {recipient_name}: {details}")
 
 @ai.post("/chat")
 def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not openai.api_key:
-        raise HTTPException(status_code=502, detail="OPENAI_API_KEY missing")
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=502, detail="Missing OPENAI_API_KEY")
 
     context = get_context_for_user(db, user.id)
 
     system_prompt = (
-        "You are HIVEBOT — the AI Smart Property Assistant for HouseHive.ai.\n"
-        "Be clear, helpful, concise, and proactive.\n\n"
+        "You are HIVEBOT — property management AI.\n"
+        "Be clear, friendly, and concise.\n\n"
         f"Properties: {context['properties']}\n"
         f"Tenants: {context['tenants']}\n"
         f"Open Tasks: {context['open_tasks']}\n"
@@ -378,28 +371,20 @@ def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depen
 
     messages = [{"role": "system", "content": system_prompt}]
     for m in payload.history:
-        if m.get("role") in ("user", "assistant"):
-            messages.append({"role": m["role"], "content": m["content"]})
+        messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": payload.message})
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=messages,
             temperature=0.6
         )
-        reply = response.choices[0].message["content"].strip()
+        reply = response.choices[0].message.content.strip()
 
     except Exception as e:
-        print("[HiveBot AI Error]", e)
-        raise HTTPException(status_code=500, detail="HiveBot could not connect to the AI API")
-
-    if any(word in payload.message.lower() for word in ("send", "message", "text")):
-        reply += "\n\nWould you like me to draft that message for you? (yes/no)"
-
-    task_words = ["fix", "repair", "broken", "leak", "issue", "maintenance", "replace", "schedule"]
-    if any(w in payload.message.lower() for w in task_words):
-        reply += "\n\nWould you like me to create a task for this? (yes/no)"
+        print("AI ERROR:", e)
+        raise HTTPException(status_code=500, detail="HiveBot could not reach OpenAI")
 
     return {
         "reply": reply,
@@ -407,6 +392,7 @@ def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depen
     }
 
 app.include_router(ai)
+
 
 
 
