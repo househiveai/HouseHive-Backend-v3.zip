@@ -100,9 +100,9 @@ class Property(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     address = Column(String(255))
-    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner_email = Column(String(255), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
 
 class Tenant(Base):
     __tablename__ = "tenants"
@@ -114,6 +114,7 @@ class Tenant(Base):
     owner_email = Column(String(255), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+
 class Task(Base):
     __tablename__ = "tasks"
     id = Column(Integer, primary_key=True, index=True)
@@ -123,6 +124,7 @@ class Task(Base):
     property_id = Column(Integer, ForeignKey("properties.id"), nullable=True, index=True)
     owner_email = Column(String(255), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
 
 class Reminder(Base):
     __tablename__ = "reminders"
