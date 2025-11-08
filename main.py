@@ -32,11 +32,9 @@ engine = create_engine(
     DATABASE_URL,
     connect_args={"sslmode": "require"},
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
     future=True,
-    echo=False,
 )
+
 
 
 JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
@@ -459,3 +457,11 @@ app.include_router(properties)
 
 app.include_router(auth)
 app.include_router(insights)
+
+@app.get("/test-db")
+def test_db(db: Session = Depends(get_db)):
+    try:
+        db.execute("SELECT 1;")
+        return {"db": "ok"}
+    except Exception as e:
+        return {"db_error": str(e)}
