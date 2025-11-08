@@ -386,71 +386,55 @@ class ChatMessage(BaseModel):
 
 @ai.post("/chat")
 def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    # Early guard if the SDK couldn't be constructed
-    if client is None:
-        raise HTTPException(status_code=502, detail="AI backend not configured")
-
     context = get_context_for_user(db, user.id)
 
     system_prompt = f"""
 You are HIVEBOT — the AI Smart Property Assistant for HouseHive.ai.
-You help property owners manage tenants, rentals, maintenance, and guest communication.
-
-You ALWAYS:
-- Respond clearly, friendly, concise, and confident.
-- Use the facts from CONTEXT below when relevant.
-- If requesting clarification, ask 1 precise question.
-- Offer to take the next action (create task, log reminder, generate message, etc.)
+Be clear, friendly, concise, and proactive.
 
 CONTEXT (not shown to user):
 Properties: {context["properties"]}
 Tenants: {context["tenants"]}
 Open Tasks: {context["open_tasks"]}
-""".strip()
+"""
 
     messages = [{"role": "system", "content": system_prompt}]
 
-    # include conversation history safely
-    for m in payload.history or []:
-        role = m.get("role")
-        content = m.get("content")
-        if role in ("user", "assistant") and isinstance(content, str):
-            messages.append({"role": role, "content": content})
+    for m in payload.history:
+        if m["role"] in ("user", "assistant"):
+            messages.append(m)
 
-    # add new user message
     messages.append({"role": "user", "content": payload.message})
 
-try:
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=messages,
-        temperature=0.6,
-    )
+    try:
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=messages,
+            temperature=0.6,
+        )
+        reply = (response.choices[0].message.content or "").strip()
 
-    reply = response.choices[0].message.content.strip()
+    except Exception as e:
+        print("AI Error:", e)
+        raise HTTPException(status_code=500, detail="HiveBot could not connect to the AI API")
 
-except Exception as e:
-    print("AI Error:", e)
-    raise HTTPException(status_code=500, detail="HiveBot could not connect to the AI API")
-
-
-
-    # Offer message drafting if user appears to ask for it
+    # Offer message drafting
     if "send" in payload.message.lower() or "message" in payload.message.lower():
         reply += "\n\nWould you like me to draft a message for you to send? (yes/no)"
 
-    # Offer task creation if it sounds like a maintenance issue
+    # Offer task creation
     task_keywords = [
         "fix", "repair", "broken", "issue", "leak", "replace",
         "maintenance", "problem", "schedule", "coming to look", "needs to be done"
     ]
-    if any(k in payload.message.lower() for k in task_keywords):
+    if any(word in payload.message.lower() for word in task_keywords):
         reply += "\n\nWould you like me to create a task for this? (yes/no)"
 
     return {
         "reply": reply,
-        "history": messages + [{"role": "assistant", "content": reply}],
+        "history": messages + [{"role": "assistant", "content": reply}]
     }
+
 
 
 app.include_router(ai)
