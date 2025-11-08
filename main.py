@@ -318,11 +318,15 @@ def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
     return UserOut.from_orm(user)
 
 def get_context_for_user(db: Session, user_id: int):
-    properties = db.query(Property).filter(Property.owner_id == user_id).all()
-    tenants = db.query(Tenant).filter(Tenant.owner_id == user_id).all()
-    tasks = db.query(Task).filter(Task.owner_id == user_id, Task.completed == False).all()
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return {"properties": [], "tenants": [], "open_tasks": []}
 
-    context = {
+    properties = db.query(Property).filter(Property.owner_email == user.email).all()
+    tenants = db.query(Tenant).filter(Tenant.owner_email == user.email).all()
+    tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").all()
+
+    return {
         "properties": [
             {"id": p.id, "name": p.name, "address": p.address}
             for p in properties
@@ -332,10 +336,11 @@ def get_context_for_user(db: Session, user_id: int):
             for t in tenants
         ],
         "open_tasks": [
-            {"id": t.id, "title": t.title, "property": t.property_id, "due": t.due_date}
+            {"id": t.id, "title": t.title, "property": t.property_id}
             for t in tasks
         ],
     }
+
 
     return context
 
