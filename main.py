@@ -414,6 +414,41 @@ class DraftRequest(BaseModel):
 def generate_draft(payload: DraftRequest, user: User = Depends(get_current_user)):
     return {"draft": draft_message(payload.action, payload.recipient, payload.details)}
 
+class DraftRequest(BaseModel):
+    recipient: str
+    context: str  # property / tenant / situation
+    tone: str = "friendly"  # friendly, professional, urgent
+
+@ai.post("/draft")
+def draft_message(payload: DraftRequest, user: User = Depends(get_current_user)):
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=502, detail="Missing OPENAI_API_KEY")
+
+    system_prompt = f"""
+You are HIVEBOT — a property management communication assistant.
+Write messages that are clear, concise, and human-like.
+Tone: {payload.tone}.
+Context: {payload.context}.
+Recipient name: {payload.recipient}.
+Sound like a helpful property manager.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "Write the message now."},
+            ],
+            temperature=0.4,
+        )
+        text = response.choices[0].message.content.strip()
+        return {"draft": text}
+
+    except Exception as e:
+        print("DRAFT ERROR:", e)
+        raise HTTPException(status_code=500, detail="Drafting service unavailable")
+
 
 # =============================
 # INSIGHTS
