@@ -286,17 +286,28 @@ dashboard = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 @dashboard.get("/summary")
 def dashboard_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    properties_count = db.query(Property).filter(Property.owner_email == user.email).count()
-    tenants_count = db.query(Tenant).filter(Tenant.owner_email == user.email).count()
-    tasks_count = db.query(Task).filter(Task.owner_email == user.email, Task.status != "completed").count()
-    reminders_count = db.query(Reminder).filter(Reminder.owner_email == user.email, Reminder.completed == False).count()
+    properties = db.query(Property).filter(Property.owner_email == user.email).all()
+    tenants = db.query(Tenant).filter(Tenant.owner_email == user.email).all()
+    open_tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").all()
+    reminders = db.query(Reminder).filter(Reminder.owner_email == user.email, Reminder.completed == False).all()
 
     return {
-        "properties": properties_count,
-        "tenants": tenants_count,
-        "tasks": tasks_count,
-        "reminders": reminders_count
+        "stats": {
+            "properties": len(properties),
+            "tenants": len(tenants),
+            "tasks": len(open_tasks),
+            "reminders": len(reminders)
+        },
+        "recent_tasks": [
+            {"id": t.id, "title": t.title, "property_id": t.property_id, "created_at": t.created_at}
+            for t in open_tasks[:5]
+        ],
+        "recent_properties": [
+            {"id": p.id, "name": p.name, "address": p.address, "created_at": p.created_at}
+            for p in properties[:5]
+        ]
     }
+
 
 app.include_router(dashboard)
 
@@ -307,15 +318,27 @@ landlord = APIRouter(prefix="/api/landlord", tags=["landlord"])
 def landlord_overview(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     properties = db.query(Property).filter(Property.owner_email == user.email).all()
     tenants = db.query(Tenant).filter(Tenant.owner_email == user.email).all()
-    open_tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").all()
+    tasks = db.query(Task).filter(Task.owner_email == user.email).all()
     reminders = db.query(Reminder).filter(Reminder.owner_email == user.email, Reminder.completed == False).all()
 
+    property_map = {p.id: {"id": p.id, "name": p.name, "address": p.address, "tenants": [], "tasks": []} for p in properties}
+
+    for t in tenants:
+        if t.property_id in property_map:
+            property_map[t.property_id]["tenants"].append({"id": t.id, "name": t.name, "email": t.email, "phone": t.phone})
+
+    for task in tasks:
+        if task.property_id in property_map:
+            property_map[task.property_id]["tasks"].append({"id": task.id, "title": task.title, "status": task.status})
+
     return {
-        "properties": properties,
-        "tenants": tenants,
-        "tasks": open_tasks,
-        "reminders": reminders
+        "properties": list(property_map.values()),
+        "reminders": [
+            {"id": r.id, "title": r.title, "due_date": r.due_date}
+            for r in reminders
+        ]
     }
+
 
 app.include_router(landlord)
 
