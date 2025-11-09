@@ -301,25 +301,47 @@ dashboard = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 def dashboard_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     properties = db.query(Property).filter(Property.owner_email == user.email).all()
     tenants = db.query(Tenant).filter(Tenant.owner_email == user.email).all()
-    open_tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").all()
+    leases = db.query(Lease).filter(Lease.owner_email == user.email, Lease.active == True).all()
+    tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").all()
     reminders = db.query(Reminder).filter(Reminder.owner_email == user.email, Reminder.completed == False).all()
+
+    total_units = len(properties)
+    active_units = len({l.property_id for l in leases})  # property is occupied if leased
+    occupancy_rate = round((active_units / total_units) * 100, 1) if total_units > 0 else 0
+
+    monthly_income = sum([l.rent_amount for l in leases])
 
     return {
         "stats": {
-            "properties": len(properties),
+            "properties": total_units,
             "tenants": len(tenants),
-            "tasks": len(open_tasks),
-            "reminders": len(reminders)
+            "leases": len(leases),
+            "active_tasks": len(tasks),
+            "reminders": len(reminders),
+            "monthly_income": monthly_income,
+            "occupancy_rate": occupancy_rate,
         },
-        "recent_tasks": [
-            {"id": t.id, "title": t.title, "property_id": t.property_id, "created_at": t.created_at}
-            for t in open_tasks[:5]
-        ],
         "recent_properties": [
-            {"id": p.id, "name": p.name, "address": p.address, "created_at": p.created_at}
+            {"id": p.id, "name": p.name, "address": p.address}
             for p in properties[:5]
+        ],
+        "recent_leases": [
+            {
+                "id": l.id,
+                "property_id": l.property_id,
+                "tenant_id": l.tenant_id,
+                "rent_amount": l.rent_amount,
+                "start_date": l.start_date,
+                "end_date": l.end_date,
+            }
+            for l in leases[:5]
+        ],
+        "recent_tasks": [
+            {"id": t.id, "title": t.title, "property_id": t.property_id}
+            for t in tasks[:5]
         ]
     }
+
 
 
 app.include_router(dashboard)
@@ -331,26 +353,45 @@ landlord = APIRouter(prefix="/api/landlord", tags=["landlord"])
 def landlord_overview(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     properties = db.query(Property).filter(Property.owner_email == user.email).all()
     tenants = db.query(Tenant).filter(Tenant.owner_email == user.email).all()
-    tasks = db.query(Task).filter(Task.owner_email == user.email).all()
-    reminders = db.query(Reminder).filter(Reminder.owner_email == user.email, Reminder.completed == False).all()
+    leases = db.query(Lease).filter(Lease.owner_email == user.email, Lease.active == True).all()
+    tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").all()
 
-    property_map = {p.id: {"id": p.id, "name": p.name, "address": p.address, "tenants": [], "tasks": []} for p in properties}
+    property_map = {p.id: {
+        "id": p.id,
+        "name": p.name,
+        "address": p.address,
+        "tenants": [],
+        "leases": [],
+        "tasks": []
+    } for p in properties}
+
+    for l in leases:
+        property_map[l.property_id]["leases"].append({
+            "tenant_id": l.tenant_id,
+            "rent_amount": l.rent_amount,
+            "start_date": l.start_date,
+            "end_date": l.end_date,
+        })
 
     for t in tenants:
         if t.property_id in property_map:
-            property_map[t.property_id]["tenants"].append({"id": t.id, "name": t.name, "email": t.email, "phone": t.phone})
+            property_map[t.property_id]["tenants"].append({
+                "id": t.id,
+                "name": t.name,
+                "email": t.email,
+                "phone": t.phone,
+            })
 
     for task in tasks:
         if task.property_id in property_map:
-            property_map[task.property_id]["tasks"].append({"id": task.id, "title": task.title, "status": task.status})
+            property_map[task.property_id]["tasks"].append({
+                "id": task.id,
+                "title": task.title,
+                "status": task.status,
+            })
 
-    return {
-        "properties": list(property_map.values()),
-        "reminders": [
-            {"id": r.id, "title": r.title, "due_date": r.due_date}
-            for r in reminders
-        ]
-    }
+    return {"properties": list(property_map.values())}
+
 
 
 app.include_router(landlord)
