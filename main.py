@@ -347,7 +347,8 @@ ai = APIRouter(prefix="/api/ai", tags=["ai"])
 
 class ChatMessage(BaseModel):
     message: str
-    history: list = []
+    history: list = Field(default_factory=list)
+
 
 @ai.post("/chat")
 def chat(payload: ChatMessage, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
