@@ -280,6 +280,46 @@ def get_insights(db: Session = Depends(get_db), user: User = Depends(get_current
 app.include_router(insights)
 
 # =============================
+# DASHBOARD + LANDLORD OVERVIEW
+# =============================
+dashboard = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+@dashboard.get("/summary")
+def dashboard_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    properties_count = db.query(Property).filter(Property.owner_email == user.email).count()
+    tenants_count = db.query(Tenant).filter(Tenant.owner_email == user.email).count()
+    tasks_count = db.query(Task).filter(Task.owner_email == user.email, Task.status != "completed").count()
+    reminders_count = db.query(Reminder).filter(Reminder.owner_email == user.email, Reminder.completed == False).count()
+
+    return {
+        "properties": properties_count,
+        "tenants": tenants_count,
+        "tasks": tasks_count,
+        "reminders": reminders_count
+    }
+
+app.include_router(dashboard)
+
+
+landlord = APIRouter(prefix="/api/landlord", tags=["landlord"])
+
+@landlord.get("/overview")
+def landlord_overview(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    properties = db.query(Property).filter(Property.owner_email == user.email).all()
+    tenants = db.query(Tenant).filter(Tenant.owner_email == user.email).all()
+    open_tasks = db.query(Task).filter(Task.owner_email == user.email, Task.status == "open").all()
+    reminders = db.query(Reminder).filter(Reminder.owner_email == user.email, Reminder.completed == False).all()
+
+    return {
+        "properties": properties,
+        "tenants": tenants,
+        "tasks": open_tasks,
+        "reminders": reminders
+    }
+
+app.include_router(landlord)
+
+# =============================
 # HEALTH CHECK (Render)
 # =============================
 core = APIRouter(prefix="/api", tags=["core"])
@@ -293,14 +333,17 @@ app.include_router(core)
 # =============================
 # AI CHAT + DRAFT (Correct + Working)
 # =============================
+# =============================
+# AI CHAT + DRAFT (Correct + Working)
+# =============================
 from openai import OpenAI
 
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-
-ai = APIRouter(prefix="/api/ai", tags=["ai"]) 
-@api.get("/dashboard/summary") 
-@api.get("/landlord/overview") 
 MODEL_NAME = OPENAI_MODEL or "gpt-4o-mini"
+ai = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+
 
 class ChatMessage(BaseModel):
     message: str
