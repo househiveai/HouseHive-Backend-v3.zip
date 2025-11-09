@@ -295,10 +295,11 @@ app.include_router(core)
 # =============================
 from openai import OpenAI
 
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+
 ai = APIRouter(prefix="/api/ai", tags=["ai"]) 
 @api.get("/dashboard/summary") 
 @api.get("/landlord/overview") 
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 MODEL_NAME = OPENAI_MODEL or "gpt-4o-mini"
 
 class ChatMessage(BaseModel):
