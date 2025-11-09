@@ -14,7 +14,7 @@ from sqlalchemy import (
     create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, func
 )
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 
