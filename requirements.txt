@@ -13,6 +13,6 @@ psycopg2-binary
 # --- AI stack (pin httpx so OpenAI's internal client doesn't pass an unsupported kwarg)
 openai==1.3.5
 httpx==0.27.2
-
+stripe
 
 
