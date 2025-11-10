@@ -281,7 +281,7 @@ def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db), user: 
     db.refresh(user)
     return UserOut.from_orm(user)
 
-@auth.patch("/email", response_model=UserOut)
+@auth.patch("/email", response_model=TokenResponse)
 def update_email(payload: EmailUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     new_email = payload.email.lower()
 
@@ -289,11 +289,28 @@ def update_email(payload: EmailUpdate, db: Session = Depends(get_db), user: User
     if db.query(User).filter(User.email == new_email, User.id != user.id).first():
         raise HTTPException(status_code=409, detail="Email already in use")
 
+    # update user email
     user.email = new_email
     db.add(user)
     db.commit()
     db.refresh(user)
-    return UserOut.from_orm(user)
+
+    # issue new access + refresh tokens bound to the *new* email
+    access = create_access_token(user.email)
+    refresh = jwt.encode({"sub": user.email}, JWT_SECRET, algorithm=JWT_ALG)
+
+    response = JSONResponse(jsonable_encoder(TokenResponse(access_token=access, user=UserOut.from_orm(user))))
+    response.set_cookie(
+        "refresh_token",
+        refresh,
+        httponly=True,
+        secure=True,
+        samesite="None",
+        max_age=60*60*24*30,
+        path="/"
+    )
+    return response
+
 
 @auth.patch("/password")
 def update_password(payload: PasswordUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
