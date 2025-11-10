@@ -1,11 +1,11 @@
 # main.py
 import os
+import json
 import datetime as dt
-from typing import Optional, List
-from fastapi import Depends
+from typing import Optional
 
 from fastapi import Cookie
-from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter, BackgroundTasks
+from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter, BackgroundTasks, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,6 +21,7 @@ from sqlalchemy import (
     func,
     text,
     update,
+    inspect,
 )
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import IntegrityError
@@ -62,6 +63,12 @@ JWT_EXPIRES_MIN = int(os.getenv("JWT_EXPIRES_MIN", "60"))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+
+ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("ADMIN_EMAILS", "").split(",")
+    if email.strip()
+}
 
 # =============================
 # APP + CORS
@@ -105,8 +112,9 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     name = Column(String(255))
-    password_hash = Column(String(255), nullable=False) 
-    stripe_customer_id = Column(String(255), nullable=True, index=True) 
+    password_hash = Column(String(255), nullable=False)
+    stripe_customer_id = Column(String(255), nullable=True, index=True)
+    plan = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 class Property(Base):
@@ -163,6 +171,18 @@ class Lease(Base):
 
 Base.metadata.create_all(bind=engine)
 
+# Ensure the "plan" column exists for deployments created before this field was added.
+try:
+    inspector = inspect(engine)
+    if "users" in inspector.get_table_names():
+        user_columns = {col["name"] for col in inspector.get_columns("users")}
+        if "plan" not in user_columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR(50)"))
+except Exception as exc:
+    # don't block startup if the introspection fails (e.g., limited permissions)
+    print("[WARN] Unable to verify plan column existence:", exc)
+
 # =============================
 # SECURITY
 # =============================
@@ -190,6 +210,12 @@ def get_current_user(db: Session = Depends(get_db), token: Optional[str] = Depen
     if not user: raise HTTPException(status_code=401, detail="User not found")
     return user
 
+
+def require_admin(user: User = Depends(get_current_user)):
+    if user.email.lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
 # =============================
 # AUTH ROUTES
 # =============================
@@ -199,6 +225,7 @@ class UserOut(BaseModel):
     id: int
     email: EmailStr
     name: Optional[str]
+    plan: Optional[str]
     created_at: dt.datetime
     class Config: orm_mode = True
 
@@ -581,11 +608,63 @@ app.include_router(ai)
 import stripe
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 stripe.api_key = STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
+PLAN_PRICE_IDS = {
+    "cohost": os.getenv("STRIPE_PRICE_COHOST", "price_1SRxcvLIwGlwBzO6ZjGZA0pv"),
+    "pro": os.getenv("STRIPE_PRICE_PRO", "price_1SNwkMLIwGlwBzO6snGiqUdA"),
+    "agency": os.getenv("STRIPE_PRICE_AGENCY", "price_1SNwlGLIwGlwBzO64zfSxvcS"),
+}
+
+PRICE_TO_PLAN = {price_id: plan for plan, price_id in PLAN_PRICE_IDS.items() if price_id}
 
 billing = APIRouter(prefix="/api/billing", tags=["billing"])
 
 class CheckoutRequest(BaseModel):
-    plan: str  # must be a real Stripe Price ID (price_xxxxx)
+    plan: Optional[str] = None  # either plan slug (e.g. "cohost") or a Stripe price ID
+    price_id: Optional[str] = Field(default=None, alias="priceId")
+
+    @root_validator(pre=True)
+    def ensure_plan(cls, values):
+        plan = values.get("plan")
+        price_id = values.get("priceId") or values.get("price_id")
+        if not plan and price_id:
+            values["plan"] = price_id
+        return values
+
+
+def resolve_checkout_plan(plan_value: Optional[str]):
+    if not plan_value:
+        raise HTTPException(status_code=400, detail="Missing plan selection")
+
+    plan_key = plan_value.strip().lower()
+    if plan_key in PLAN_PRICE_IDS and PLAN_PRICE_IDS[plan_key]:
+        return plan_key, PLAN_PRICE_IDS[plan_key]
+
+    if plan_value in PRICE_TO_PLAN:
+        return PRICE_TO_PLAN[plan_value], plan_value
+
+    raise HTTPException(status_code=400, detail="Unknown plan")
+
+
+def normalize_plan_key(plan_value: Optional[str]):
+    if not plan_value:
+        return None
+    plan_key = plan_value.strip().lower()
+    if plan_key in PLAN_PRICE_IDS:
+        return plan_key
+    if plan_value in PRICE_TO_PLAN:
+        return PRICE_TO_PLAN[plan_value]
+    return None
+
+
+def apply_user_plan(db: Session, user: User, plan_key: Optional[str]):
+    user.plan = plan_key
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
 
 def get_or_create_customer(user: User):
     # Already exists?
@@ -600,10 +679,28 @@ def get_or_create_customer(user: User):
     user.stripe_customer_id = customer.id
     return customer.id
 
+
+def get_user_by_customer(db: Session, customer_id: str) -> Optional[User]:
+    if not customer_id:
+        return None
+    return db.query(User).filter(User.stripe_customer_id == customer_id).first()
+
+
+def admin_plan_value(plan_value: Optional[str]) -> Optional[str]:
+    if plan_value is None:
+        return None
+    normalized = normalize_plan_key(plan_value)
+    if normalized:
+        return normalized
+    stripped = plan_value.strip()
+    return stripped.lower() if stripped else None
+
 @billing.post("/create-checkout")
 def create_checkout(payload: CheckoutRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not STRIPE_SECRET_KEY:
         raise HTTPException(500, "Stripe not configured")
+
+    plan_key, price_id = resolve_checkout_plan(payload.plan)
 
     customer_id = get_or_create_customer(user)
 
@@ -615,9 +712,12 @@ def create_checkout(payload: CheckoutRequest, db: Session = Depends(get_db), use
         session = stripe.checkout.Session.create(
             mode="subscription",
             customer=customer_id,
-            line_items=[{"price": payload.plan, "quantity": 1}],
+            line_items=[{"price": price_id, "quantity": 1}],
             success_url="https://househive.ai/billing/success",
             cancel_url="https://househive.ai/billing/cancel",
+            metadata={"plan": plan_key, "user_id": str(user.id)},
+            subscription_data={"metadata": {"plan": plan_key, "user_id": str(user.id)}},
+            client_reference_id=str(user.id),
         )
         return {"url": session.url}
     except Exception as e:
@@ -641,7 +741,118 @@ def billing_portal(db: Session = Depends(get_db), user: User = Depends(get_curre
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _plan_from_subscription(subscription: dict) -> Optional[str]:
+    metadata_plan = normalize_plan_key(subscription.get("metadata", {}).get("plan"))
+    if metadata_plan:
+        return metadata_plan
+
+    items = subscription.get("items", {}).get("data", [])
+    for item in items:
+        price_id = item.get("price", {}).get("id")
+        plan_key = normalize_plan_key(price_id)
+        if plan_key:
+            return plan_key
+    return None
+
+
+@billing.post("/webhook", include_in_schema=False)
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        if STRIPE_WEBHOOK_SECRET:
+            event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+        else:
+            event = stripe.Event.construct_from(json.loads(payload.decode("utf-8")), stripe.api_key)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    event_type = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
+    data_object = event.get("data", {}).get("object") if isinstance(event, dict) else event.data.get("object")
+
+    if not data_object:
+        return {"received": True}
+
+    customer_id = data_object.get("customer")
+    user = get_user_by_customer(db, customer_id)
+
+    if not user:
+        return {"received": True}
+
+    if event_type == "checkout.session.completed":
+        plan_key = normalize_plan_key(data_object.get("metadata", {}).get("plan"))
+        if not plan_key:
+            subscription_id = data_object.get("subscription")
+            if subscription_id:
+                try:
+                    subscription = stripe.Subscription.retrieve(subscription_id)
+                    plan_key = _plan_from_subscription(subscription)
+                except Exception as exc:
+                    print("[WARN] Unable to fetch subscription for plan mapping:", exc)
+        if plan_key:
+            apply_user_plan(db, user, plan_key)
+
+    elif event_type in {"customer.subscription.created", "customer.subscription.updated", "customer.subscription.resumed"}:
+        plan_key = _plan_from_subscription(data_object)
+        status = data_object.get("status")
+        if status in {"active", "trialing"} and plan_key:
+            apply_user_plan(db, user, plan_key)
+        elif status in {"canceled", "unpaid", "past_due", "incomplete", "incomplete_expired"}:
+            apply_user_plan(db, user, None)
+
+    elif event_type == "customer.subscription.deleted":
+        apply_user_plan(db, user, None)
+
+    return {"received": True}
+
+
 app.include_router(billing)
+
+
+admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+class AdminPlanUpdate(BaseModel):
+    id: int
+    plan: Optional[str] = None
+
+
+class AdminDeleteRequest(BaseModel):
+    id: int
+
+
+@admin_router.get("/users")
+def admin_list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [UserOut.from_orm(u) for u in users]
+
+
+@admin_router.post("/set-plan")
+def admin_set_plan(payload: AdminPlanUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    target = db.query(User).filter(User.id == payload.id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    plan_value = admin_plan_value(payload.plan)
+    apply_user_plan(db, target, plan_value)
+    return UserOut.from_orm(target)
+
+
+@admin_router.delete("/delete-user")
+def admin_delete_user(payload: AdminDeleteRequest, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    target = db.query(User).filter(User.id == payload.id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db.delete(target)
+    db.commit()
+    return {"status": "deleted"}
+
+
+app.include_router(admin_router)
 
 # =============================
 # TEST DB
