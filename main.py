@@ -578,29 +578,43 @@ def draft(payload: DraftRequest, user: User = Depends(get_current_user)):
 app.include_router(ai)
 
 import stripe
-
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 stripe.api_key = STRIPE_SECRET_KEY
 
 billing = APIRouter(prefix="/api/billing", tags=["billing"])
 
 class CheckoutRequest(BaseModel):
-    plan: str
+    plan: str  # must be a real Stripe Price ID (price_xxxxx)
+
+def get_or_create_customer(user: User):
+    # Already exists?
+    if user.stripe_customer_id:
+        return user.stripe_customer_id
+
+    # Create new one
+    customer = stripe.Customer.create(
+        email=user.email,
+        name=user.name or None
+    )
+    user.stripe_customer_id = customer.id
+    return customer.id
 
 @billing.post("/create-checkout")
-def create_checkout(payload: CheckoutRequest, user: User = Depends(get_current_user)):
+def create_checkout(payload: CheckoutRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=500, detail="Stripe is not configured")
+        raise HTTPException(500, "Stripe not configured")
+
+    customer_id = get_or_create_customer(user)
+
+    # persist if new
+    db.add(user)
+    db.commit()
 
     try:
         session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
             mode="subscription",
-            customer_email=user.email,
-            line_items=[{
-                "price": payload.plan,   # <-- PLAN ID FROM STRIPE (price_xxxxxxxx)
-                "quantity": 1
-            }],
+            customer=customer_id,
+            line_items=[{"price": payload.plan, "quantity": 1}],
             success_url="https://househive.ai/billing/success",
             cancel_url="https://househive.ai/billing/cancel",
         )
@@ -608,16 +622,23 @@ def create_checkout(payload: CheckoutRequest, user: User = Depends(get_current_u
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @billing.post("/portal")
-def billing_portal(user: User = Depends(get_current_user)):
+def billing_portal(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if not user.stripe_customer_id:
+        user.stripe_customer_id = get_or_create_customer(user)
+        db.add(user)
+        db.commit()
+
     try:
         portal = stripe.billing_portal.Session.create(
-            customer_email=user.email,
+            customer=user.stripe_customer_id,
             return_url="https://househive.ai/account"
         )
         return {"url": portal.url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 app.include_router(billing)
 
