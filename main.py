@@ -577,6 +577,50 @@ def draft(payload: DraftRequest, user: User = Depends(get_current_user)):
 
 app.include_router(ai)
 
+import stripe
+
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+stripe.api_key = STRIPE_SECRET_KEY
+
+billing = APIRouter(prefix="/api/billing", tags=["billing"])
+
+class CheckoutRequest(BaseModel):
+    plan: str
+
+@billing.post("/create-checkout")
+def create_checkout(payload: CheckoutRequest, user: User = Depends(get_current_user)):
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe is not configured")
+
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="subscription",
+            customer_email=user.email,
+            line_items=[{
+                "price": payload.plan,   # <-- PLAN ID FROM STRIPE (price_xxxxxxxx)
+                "quantity": 1
+            }],
+            success_url="https://househive.ai/billing/success",
+            cancel_url="https://househive.ai/billing/cancel",
+        )
+        return {"url": session.url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@billing.post("/portal")
+def billing_portal(user: User = Depends(get_current_user)):
+    try:
+        portal = stripe.billing_portal.Session.create(
+            customer_email=user.email,
+            return_url="https://househive.ai/account"
+        )
+        return {"url": portal.url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+app.include_router(billing)
+
 # =============================
 # TEST DB
 # =============================
