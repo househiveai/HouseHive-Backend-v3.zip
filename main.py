@@ -11,8 +11,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import (
-    create_engine, Column, Integer, String, DateTime, Boolean, ForeignKey, func
+    create_engine,
+    Column,
+    Integer,
+    String,
+    DateTime,
+    Boolean,
+    ForeignKey,
+    func,
+    text,
+    update,
 )
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship
 from passlib.context import CryptContext
@@ -26,11 +36,24 @@ DATABASE_URL = os.getenv(
     "postgresql://househive_db_user:853bkQc9s9y7oWVmGnpjqt8G8zlWRDJp@dpg-d45u9hvdiees738h3f80-a.oregon-postgres.render.com/househive_db?sslmode=require",
 )
 
+engine_kwargs = {
+    "pool_pre_ping": True,
+    "future": True,
+}
+
+try:
+    parsed_url = make_url(DATABASE_URL)
+    is_postgres = parsed_url.drivername.startswith("postgresql")
+except Exception:
+    parsed_url = None
+    is_postgres = DATABASE_URL.startswith("postgresql")
+
+if is_postgres:
+    engine_kwargs["connect_args"] = {"sslmode": "require"}
+
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"sslmode": "require"},
-    pool_pre_ping=True,
-    future=True,
+    **engine_kwargs,
 )
 
 JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PROD")
@@ -492,7 +515,7 @@ app.include_router(ai)
 @app.get("/test-db")
 def test_db(db: Session = Depends(get_db)):
     try:
-        db.execute("SELECT 1;")
+        db.execute(text("SELECT 1"))
         return {"db": "ok"}
     except Exception as e:
         return {"db_error": str(e)}
@@ -525,13 +548,26 @@ def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db), user: 
 @auth.patch("/email", response_model=UserOut)
 def update_email(payload: EmailUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     new_email = payload.email.lower()
+    current_email = user.email
 
     # prevent using someone else’s email
     if db.query(User).filter(User.email == new_email, User.id != user.id).first():
         raise HTTPException(status_code=409, detail="Email already in use")
 
+    if new_email == current_email:
+        return UserOut.from_orm(user)
+
     user.email = new_email
     db.add(user)
+
+    related_models = (Property, Tenant, Task, Reminder, Lease)
+    for model in related_models:
+        db.execute(
+            update(model)
+            .where(model.owner_email == current_email)
+            .values(owner_email=new_email)
+        )
+
     db.commit()
     db.refresh(user)
     return UserOut.from_orm(user)
