@@ -9,7 +9,7 @@ from fastapi import FastAPI, Depends, Header, HTTPException, APIRouter, Backgrou
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, root_validator
 from sqlalchemy import (
     create_engine,
     Column,
@@ -531,10 +531,41 @@ class ProfileUpdate(BaseModel):
 
 class EmailUpdate(BaseModel):
     email: EmailStr
+    current_password: Optional[str] = None
+
+    @root_validator(pre=True)
+    def _normalize_password(cls, values):
+        # Allow frontend to send either `currentPassword` or `password`
+        if "current_password" not in values:
+            if "currentPassword" in values:
+                values["current_password"] = values["currentPassword"]
+            elif "password" in values:
+                values["current_password"] = values["password"]
+        return values
+
+    class Config:
+        allow_population_by_field_name = True
+
 
 class PasswordUpdate(BaseModel):
     current_password: str
     new_password: str = Field(min_length=6)
+
+    @root_validator(pre=True)
+    def _normalize_fields(cls, values):
+        # Accept camelCase payloads from the frontend
+        if "current_password" not in values and "currentPassword" in values:
+            values["current_password"] = values["currentPassword"]
+        if "new_password" not in values and "newPassword" in values:
+            values["new_password"] = values["newPassword"]
+        return values
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class UserEmailUpdateResponse(UserOut):
+    access_token: str
 
 @auth.patch("/profile", response_model=UserOut)
 def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -545,17 +576,21 @@ def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db), user: 
     db.refresh(user)
     return UserOut.from_orm(user)
 
-@auth.patch("/email", response_model=UserOut)
+@auth.patch("/email", response_model=UserEmailUpdateResponse)
 def update_email(payload: EmailUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     new_email = payload.email.lower()
     current_email = user.email
+
+    if payload.current_password:
+        if not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
 
     # prevent using someone else’s email
     if db.query(User).filter(User.email == new_email, User.id != user.id).first():
         raise HTTPException(status_code=409, detail="Email already in use")
 
     if new_email == current_email:
-        return UserOut.from_orm(user)
+        return UserEmailUpdateResponse(**UserOut.from_orm(user).dict(), access_token=create_access_token(user.email))
 
     user.email = new_email
     db.add(user)
@@ -570,7 +605,7 @@ def update_email(payload: EmailUpdate, db: Session = Depends(get_db), user: User
 
     db.commit()
     db.refresh(user)
-    return UserOut.from_orm(user)
+    return UserEmailUpdateResponse(**UserOut.from_orm(user).dict(), access_token=create_access_token(user.email))
 
 @auth.patch("/password")
 def update_password(payload: PasswordUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
