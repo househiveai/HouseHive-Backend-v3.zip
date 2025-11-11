@@ -225,7 +225,7 @@ class UserOut(BaseModel):
     id: int
     email: EmailStr
     name: Optional[str]
-    plan: Optional[str]
+    plan: Optional[str] = None
     created_at: dt.datetime
     class Config: orm_mode = True
 
