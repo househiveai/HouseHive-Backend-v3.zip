@@ -611,7 +611,7 @@ stripe.api_key = STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
 PLAN_PRICE_IDS = {
-    "cohost": os.getenv("STRIPE_PRICE_COHOST", "price_1SS93cLIwGlwBzO6F51rzMWl"),
+    "cohost": os.getenv("STRIPE_PRICE_COHOST", "price_1SRxcvLIwGlwBzO6ZjGZA0pv"),
     "pro": os.getenv("STRIPE_PRICE_PRO", "price_1SNwkMLIwGlwBzO6snGiqUdA"),
     "agency": os.getenv("STRIPE_PRICE_AGENCY", "price_1SNwlGLIwGlwBzO64zfSxvcS"),
 }
