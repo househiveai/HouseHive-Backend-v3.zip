@@ -66,7 +66,7 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
 
 ADMIN_EMAILS = {
     email.strip().lower()
-    for email in os.getenv("ADMIN_EMAILS", "").split(",")
+    for email in os.getenv("ADMIN_EMAIL", "").split(",")
     if email.strip()
 }
 
