@@ -226,6 +226,7 @@ class UserOut(BaseModel):
     email: EmailStr
     name: Optional[str]
     plan: Optional[str] = None
+    is_admin: bool = False
     created_at: dt.datetime
     class Config: orm_mode = True
 
@@ -283,7 +284,16 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 @auth.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
-    return UserOut.from_orm(user)
+    is_admin = user.email.lower() in ADMIN_EMAILS
+
+    return UserOut(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        plan=getattr(user, "plan", None),
+        is_admin=is_admin,
+        created_at=user.created_at,
+    )
 
 # =============================
 # ACCOUNT UPDATE ROUTES
